@@ -10,9 +10,6 @@ Created on Fri Oct 10 14:12:34 2025
 # -*- coding: utf-8 -*-
 """
 QuizzyBee by Ilse Klinkhamer
-- Confirm-before-reset flow (with cancel)
-- Remembers last selected profile & questions-per-session
-- Cute start screen header 🐝🌸
 """
 
 import streamlit as st
@@ -161,7 +158,7 @@ def init_state():
 init_state()
 
 # Global title (cute!)
-st.title("🐝 QuizzyBee 🌸")
+st.title("🐝 QuizzyBee")
 st.caption("Questions return sooner if you miss them!")
 
 LETTERS = ["A", "B", "C", "D"]
