@@ -8,10 +8,11 @@ Created on Fri Oct 10 14:12:34 2025
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 QuizzyBee by Ilse Klinkhamer
+- Confirm-before-reset flow (with cancel)
+- Remembers last selected profile & questions-per-session
+- Cute start screen header 🐝🌸
 """
 
 import streamlit as st
@@ -40,6 +41,7 @@ REQUIRED_HEADERS = {
 }
 
 PROFILES_FILE = "quiz_profiles.json"
+SETTINGS_FILE = "quiz_settings.json"   # NEW: persists defaults across runs
 NO_PROFILE_LABEL = "No profile (don't save)"
 
 def safe_name(s: str) -> str:
@@ -78,7 +80,6 @@ def load_profiles() -> list[str]:
             if isinstance(data, list) and all(isinstance(x, str) for x in data):
                 return data
     except FileNotFoundError:
-        # Seed with Ilse as requested
         save_profiles(["Ilse"])
         return ["Ilse"]
     except Exception:
@@ -101,11 +102,37 @@ def add_profile(name: str):
         profiles.append(name)
         save_profiles(profiles)
 
+# ---------- App-wide settings (NEW) ----------
+def load_settings() -> dict:
+    """Return {'last_profile': str, 'last_num_questions': int} if present."""
+    try:
+        with open(SETTINGS_FILE) as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return {}
+
+def save_settings(last_profile: str, last_num_questions: int):
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(
+                {"last_profile": last_profile, "last_num_questions": int(last_num_questions)},
+                f, indent=2
+            )
+    except Exception as e:
+        st.warning(f"Couldn't save settings: {e}")
+
 # ---------- App State Defaults ----------
 def init_state():
+    settings = load_settings()  # NEW: load defaults from previous run
+
     defaults = {
         "screen": "start",              # "start" | "quiz" | "summary"
-        "num_questions": 20,
+        "num_questions": settings.get("last_num_questions", 20),  # NEW default
         "questions_answered": 0,
         "correct_count": 0,
         "session_started_at": None,
@@ -121,9 +148,11 @@ def init_state():
         "last_loaded_csv": None,
         # profiles
         "profiles": [],
-        "selected_profile": NO_PROFILE_LABEL,  # default to no-save mode
+        "selected_profile": settings.get("last_profile", NO_PROFILE_LABEL),  # NEW default
         "last_loaded_profile": None,
         "new_profile_name": "",
+        # reset confirmation state (NEW)
+        "confirm_reset": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -131,7 +160,8 @@ def init_state():
 
 init_state()
 
-st.title("🧠 Smart Quiz")
+# Global title (cute!)
+st.title("🐝 QuizzyBee 🌸")
 st.caption("Questions return sooner if you miss them!")
 
 LETTERS = ["A", "B", "C", "D"]
@@ -339,7 +369,15 @@ def show_question(idx):
 
 # ---------- Screens ----------
 def start_screen():
-    # Load profiles & datasets each time you hit Start
+    # Cute header (start screen only)
+    st.markdown(
+        "<div style='text-align:center; font-size:2.2rem; line-height:1.2'>"
+        "🐝 <b>QuizzyBee</b> 🌸"
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    # Load profiles & datasets
     st.session_state.profiles = load_profiles()
     st.session_state.available_sets = list_question_sets(".")
     if not st.session_state.available_sets:
@@ -349,8 +387,6 @@ def start_screen():
     # Default dataset selection
     if not st.session_state.selected_csv or st.session_state.selected_csv not in st.session_state.available_sets:
         st.session_state.selected_csv = st.session_state.available_sets[0]
-
-    st.header("Start a practice session")
 
     # Profile picker
     profile_options = [NO_PROFILE_LABEL] + st.session_state.profiles
@@ -398,11 +434,23 @@ def start_screen():
         f"Due in this set: **{currently_due}**"
     )
 
-    # Reset progress (only if saving with a profile)
+    # Reset progress (only if saving with a profile) with confirmation (NEW)
     if st.session_state.selected_profile != NO_PROFILE_LABEL:
-        if st.button("Reset progress for this set"):
-            reset_progress_for_current_set()
-            st.rerun()
+        if not st.session_state.confirm_reset:
+            if st.button("Reset progress for this set"):
+                st.session_state.confirm_reset = True
+                st.rerun()
+        else:
+            st.warning("Are you sure? This will erase all saved intervals and due times for this profile and set.")
+            c1, c2 = st.columns(2)
+            if c1.button("✅ Yes, reset now"):
+                reset_progress_for_current_set()
+                st.session_state.confirm_reset = False
+                st.rerun()
+            if c2.button("❌ Cancel"):
+                st.info("Reset canceled.")
+                st.session_state.confirm_reset = False
+                st.rerun()
 
     # Session size
     st.session_state.num_questions = st.number_input(
@@ -411,6 +459,12 @@ def start_screen():
         max_value=100,
         value=st.session_state.num_questions,
         step=1
+    )
+
+    # SAVE defaults continuously so they stick next time (NEW)
+    save_settings(
+        last_profile=st.session_state.selected_profile,
+        last_num_questions=st.session_state.num_questions
     )
 
     if st.button("Start Session ▶", type="primary"):
@@ -496,4 +550,3 @@ elif screen == "quiz":
     quiz_screen()
 else:
     summary_screen()
-
