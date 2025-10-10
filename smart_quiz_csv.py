@@ -10,9 +10,8 @@ Created on Fri Oct 10 14:12:34 2025
 # -*- coding: utf-8 -*-
 """
 Smart Quiz with Start Screen & Sessions
-Created on Fri Oct 10 14:12:34 2025
-
-@author: Ilse Klinkhamer
+- FIX: hold current question steady until Submit is pressed
+- FIX: accept CSV answers as letters A/B/C/D (robust parsing)
 """
 
 import streamlit as st
@@ -20,6 +19,7 @@ import pandas as pd
 import random
 import json
 import time
+import re
 from datetime import datetime, timedelta
 
 # ---------- Page Setup ----------
@@ -34,7 +34,7 @@ def init_state():
         "correct_count": 0,             # session counter
         "session_started_at": None,     # ISO timestamp for summary
         "quiz_data": None,              # spaced repetition store
-        "last_question_idx": None,      # index of the most recent asked question
+        "current_question_idx": None,   # <-- FIX: persist currently shown question
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -45,15 +45,15 @@ init_state()
 st.title("🧠 Smart Quiz")
 st.caption("Questions return sooner if you miss them!")
 
+LETTERS = ["A", "B", "C", "D"]
+
 # ---------- Load questions from CSV ----------
 @st.cache_data
 def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
     df = pd.read_csv(csv_file, sep=",", engine="python")
     df.columns = df.columns.str.strip()
 
-    # Try to be forgiving about column names
-    # Preferred: question, optionA..D, answer
-    # Fallbacks from other exports: answerA..D, correct / correct answer
+    # Flexible column resolver
     def col_try(*names):
         for n in names:
             if n in df.columns:
@@ -75,24 +75,40 @@ def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
             "question, optionA, optionB, optionC, optionD, answer"
         )
 
-    questions_list = []
     now_iso = datetime.now().isoformat()
+    questions_list = []
     for _, row in df.iterrows():
-        options = [row[a_cols[0]], row[a_cols[1]], row[a_cols[2]], row[a_cols[3]]]
+        options = [str(row[a_cols[0]]), str(row[a_cols[1]]), str(row[a_cols[2]]), str(row[a_cols[3]])]
+        ans_raw = str(row[ans_col]).strip()
+
+        # Robustly parse answer letter (A/B/C/D) or fall back to matching option text
+        letter = None
+        m = re.match(r"^\s*([A-D])\b", ans_raw, re.IGNORECASE)
+        if m:
+            letter = m.group(1).upper()
+        elif ans_raw:
+            # try to match by option text (case-insensitive)
+            try:
+                idx_guess = [o.lower().strip() for o in options].index(ans_raw.lower().strip())
+                letter = LETTERS[idx_guess]
+            except ValueError:
+                letter = "A"  # final fallback
+
+        correct_idx = LETTERS.index(letter) if letter in LETTERS else 0
+
         questions_list.append({
             "question": row[q_col],
             "options": options,
-            "answer": row[ans_col],
-            "interval": 1,              # minutes until next review
-            "next_time": now_iso        # eligible immediately
+            "answer_letter": letter,         # store as letter
+            "answer_idx": correct_idx,       # store as index for fast compare
+            "interval": 1,                   # minutes until next review
+            "next_time": now_iso             # eligible immediately
         })
     return questions_list
 
 def ensure_quiz_data_loaded():
     if st.session_state.quiz_data is None:
-        # First time: load from CSV
         st.session_state.quiz_data = load_questions()
-        # Try to merge any prior progress
         load_progress(merge=True)
 
 # ---------- Load/save progress (spaced repetition schedule) ----------
@@ -108,8 +124,6 @@ def load_progress(merge=False):
         with open("quiz_progress.json") as f:
             saved = json.load(f)
         if merge and st.session_state.quiz_data:
-            # Merge by (question text) identity; keep current CSV questions, but
-            # restore known intervals/next_time from saved store when matched.
             saved_map = {q["question"]: q for q in saved}
             for q in st.session_state.quiz_data:
                 if q["question"] in saved_map:
@@ -124,43 +138,52 @@ def load_progress(merge=False):
         st.warning(f"Couldn't load prior progress: {e}")
 
 # ---------- Helpers ----------
-def due_questions():
+def due_indexes():
     now = datetime.now()
     return [i for i, q in enumerate(st.session_state.quiz_data) if datetime.fromisoformat(q["next_time"]) <= now]
 
 def pick_next_question_idx():
-    due = due_questions()
+    due = due_indexes()
     if not due:
         return None
     return random.choice(due)
 
-def ask_question(idx):
+def show_question(idx):
     q = st.session_state.quiz_data[idx]
-    st.subheader(q["question"])
-    choice = st.radio("Choose an answer:", q["options"], key=f"choice_{idx}_{st.session_state.questions_answered}")
-    submitted = st.button("Submit", type="primary")
+
+    # Radio returns the INDEX (0..3); we format label as "A. text"
+    opts_idx = list(range(4))
+    def fmt(i): return f"{LETTERS[i]}. {q['options'][i]}"
+    choice_key = f"choice_q{idx}"   # stable key while this exact question is shown
+    selected_idx = st.radio("Choose an answer:", opts_idx, format_func=fmt, key=choice_key)
+
+    submitted = st.button("Submit", type="primary", key=f"submit_q{idx}")
     if submitted:
-        if choice == q["answer"]:
+        correct_idx = q["answer_idx"]
+        correct_letter = LETTERS[correct_idx]
+        correct_text = q["options"][correct_idx]
+
+        if selected_idx == correct_idx:
             st.success("✅ Correct!")
             st.session_state.correct_count += 1
             q["interval"] = max(1, int(q["interval"] * 2))   # grow interval when correct
         else:
-            st.error(f"❌ Wrong! The correct answer was {q['answer']}.")
+            st.error(f"❌ Wrong! The correct answer was {correct_letter}. {correct_text}")
             q["interval"] = 1                                # reset if wrong
 
         q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
         st.session_state.questions_answered += 1
-        st.session_state.last_question_idx = idx
         save_progress()
+
+        # Clear current question so the next rerun picks a NEW one (or ends)
+        st.session_state.current_question_idx = None
 
         # Move along within this session
         if st.session_state.questions_answered >= st.session_state.num_questions:
             st.session_state.screen = "summary"
-            st.rerun()
-        else:
-            # continue to next question (if any due)
-            time.sleep(0.5)
-            st.rerun()
+        # brief pause so feedback is visible before rerun
+        time.sleep(0.5)
+        st.rerun()
 
 # ---------- Screens ----------
 def start_screen():
@@ -169,8 +192,7 @@ def start_screen():
     st.header("Start a practice session")
     st.write("Set how many questions you'd like to answer in this session. Questions you miss will return sooner.")
 
-    # Count currently due
-    currently_due = len(due_questions())
+    currently_due = len(due_indexes())
     st.info(f"Questions currently due: **{currently_due}**")
 
     st.session_state.num_questions = st.number_input(
@@ -181,13 +203,11 @@ def start_screen():
         step=1
     )
 
-    start_btn = st.button("Start Session", type="primary")
-    if start_btn:
+    if st.button("Start Session", type="primary"):
         st.session_state.questions_answered = 0
         st.session_state.correct_count = 0
         st.session_state.session_started_at = datetime.now().isoformat()
-
-        # If nothing is due, let them know; still allow starting (it will end immediately)
+        st.session_state.current_question_idx = None
         st.session_state.screen = "quiz"
         st.rerun()
 
@@ -200,41 +220,46 @@ def quiz_screen():
     st.progress(answered / n if n else 0.0)
     st.caption(f"Question {answered + 1} of {n}")
 
-    idx = pick_next_question_idx()
-    if idx is None:
-        st.success("🎉 All due questions are up to date right now.")
-        if st.session_state.questions_answered > 0:
-            st.write("That’s the end of your session for now.")
-            st.session_state.screen = "summary"
-            st.rerun()
-        else:
-            # Nothing due at all and session hasn't asked anything
-            if st.button("Back to start"):
-                st.session_state.screen = "start"
+    # Keep the same question until Submit
+    if st.session_state.current_question_idx is None:
+        idx = pick_next_question_idx()
+        if idx is None:
+            st.success("🎉 All due questions are up to date right now.")
+            if answered > 0:
+                st.write("That’s the end of your session for now.")
+                st.session_state.screen = "summary"
                 st.rerun()
-        return
+            else:
+                if st.button("Back to start"):
+                    st.session_state.screen = "start"
+                    st.rerun()
+            return
+        st.session_state.current_question_idx = idx
 
-    ask_question(idx)
+    # Show the persistent current question
+    idx = st.session_state.current_question_idx
+    q = st.session_state.quiz_data[idx]
+    st.subheader(q["question"])
+    show_question(idx)
 
 def summary_screen():
     total = st.session_state.questions_answered
     correct = st.session_state.correct_count
+    st.header("Session Summary")
     if total > 0:
         accuracy = 100.0 * correct / total
-        st.header("Session Summary")
         st.metric("Questions answered", total)
         st.metric("Correct answers", correct)
         st.metric("Accuracy", f"{accuracy:.1f}%")
     else:
-        st.header("Session Summary")
         st.write("No questions were due this time. Nice and caught up!")
 
-    # Quick next-due preview
-    due_count = len(due_questions())
+    due_count = len(due_indexes())
     st.caption(f"Currently due for review: **{due_count}** question(s).")
 
     if st.button("Return to Start", type="primary"):
         st.session_state.screen = "start"
+        st.session_state.current_question_idx = None
         st.rerun()
 
 # ---------- Router ----------
@@ -245,3 +270,4 @@ elif screen == "quiz":
     quiz_screen()
 else:
     summary_screen()
+
