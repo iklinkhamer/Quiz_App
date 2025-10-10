@@ -21,7 +21,8 @@ st.caption("Questions return sooner if you miss them!")
 # ---- Load questions from CSV ----
 @st.cache_data
 def load_questions(csv_file="questions.csv"):
-    df = pd.read_csv(csv_file)
+    df = pd.read_csv(csv_file, sep=",")
+    df.columns = df.columns.str.strip()
     questions_list = []
     for _, row in df.iterrows():
         questions_list.append({
