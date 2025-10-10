@@ -193,25 +193,32 @@ def show_question(idx):
         correct_idx = q["answer_idx"]
         correct_letter = LETTERS[correct_idx]
         correct_text = q["options"][correct_idx]
-
+    
         if selected_idx == correct_idx:
             st.session_state.correct_count += 1
             q["interval"] = max(1, int(q["interval"] * 2))
             st.session_state.last_was_correct = True
             st.session_state.last_feedback = "✅ Correct!"
+            # --- auto-advance on correct ---
+            q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
+            st.session_state.questions_answered += 1
+            save_progress()
+            st.session_state.awaiting_continue = False
+            st.session_state.current_question_idx = None
+            # small pause so the "Correct!" is visible briefly
+            time.sleep(0.5)
+            finish_or_continue_session()
+            return
         else:
+            # pause on incorrect (requires Continue)
             q["interval"] = 1
             st.session_state.last_was_correct = False
             st.session_state.last_feedback = f"❌ Wrong! The correct answer was {correct_letter}. {correct_text}"
-
-        # Update SRS schedule and session counters immediately upon submit
-        q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
-        st.session_state.questions_answered += 1
-        save_progress()
-
-        # Now pause: show feedback & wait for Continue
-        st.session_state.awaiting_continue = True
-        st.rerun()
+            q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
+            st.session_state.questions_answered += 1
+            save_progress()
+            st.session_state.awaiting_continue = True
+            st.rerun()
 
 # ---------- Screens ----------
 def start_screen():
