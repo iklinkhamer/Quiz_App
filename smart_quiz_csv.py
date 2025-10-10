@@ -8,12 +8,10 @@ Created on Fri Oct 10 14:12:34 2025
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Smart Quiz with Start Screen & Sessions
-- FIX: hold current question steady until Submit is pressed
-- FIX: accept CSV answers as letters A/B/C/D (robust parsing)
-- NEW: after Submit, show correction and wait for a Continue click
-- NEW: select a question set (CSV) from the repo; separate progress per set
+QuizzyBee by Ilse Klinkhamer
 """
 
 import streamlit as st
@@ -27,9 +25,9 @@ import glob
 from datetime import datetime, timedelta
 
 # ---------- Page Setup ----------
-st.set_page_config(page_title="🧠 Smart Quiz", layout="centered")
+st.set_page_config(page_title="🧠 QuizzyBee", layout="centered")
 
-# ---------- Helpers: files (NEW) ----------
+# ---------- Helpers: files ----------
 REQUIRED_HEADERS = {
     "question",
     # any of these for options
@@ -41,35 +39,73 @@ REQUIRED_HEADERS = {
     "answer", "correct", "correct answer", "Correct Answer",
 }
 
+PROFILES_FILE = "quiz_profiles.json"
+NO_PROFILE_LABEL = "No profile (don't save)"
+
+def safe_name(s: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", s).strip("_").lower()
+
 def list_question_sets(search_root="."):
     """Find CSVs recursively that look like MCQ sets (by header)."""
     candidates = glob.glob(os.path.join(search_root, "**/*.csv"), recursive=True)
     valid = []
     for path in candidates:
         try:
-            # Read only header
             df_head = pd.read_csv(path, nrows=0, engine="python")
             cols = set([c.strip() for c in df_head.columns])
-            # Quick heuristic: must contain 'question' and at least 3 of the required headers
             if any(c.lower() == "question" for c in cols) and len(cols & REQUIRED_HEADERS) >= 5:
                 valid.append(path)
         except Exception:
             continue
-    # deterministic order, prioritize root folder first
     valid = sorted(valid, key=lambda p: (p.count(os.sep), p.lower()))
     return valid
 
-def progress_path_for(csv_file):
-    """Unique progress file per dataset."""
+def progress_path_for(csv_file: str, profile_name: str | None):
+    """Unique progress file per dataset & profile; None if practice-without-profile."""
+    if not profile_name or profile_name == NO_PROFILE_LABEL:
+        return None
     base = os.path.splitext(os.path.basename(csv_file))[0]
-    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", base).lower()
-    return f"quiz_progress__{safe}.json"
+    safe_ds = safe_name(base)
+    safe_prof = safe_name(profile_name)
+    return f"quiz_progress__{safe_ds}__{safe_prof}.json"
+
+# ---------- Profiles store ----------
+def load_profiles() -> list[str]:
+    """Persisted list of profile display names. Create with ['Ilse'] on first run."""
+    try:
+        with open(PROFILES_FILE) as f:
+            data = json.load(f)
+            if isinstance(data, list) and all(isinstance(x, str) for x in data):
+                return data
+    except FileNotFoundError:
+        # Seed with Ilse as requested
+        save_profiles(["Ilse"])
+        return ["Ilse"]
+    except Exception:
+        pass
+    return ["Ilse"]  # fallback
+
+def save_profiles(names: list[str]):
+    try:
+        with open(PROFILES_FILE, "w") as f:
+            json.dump(sorted(set(names), key=str.lower), f, indent=2)
+    except Exception as e:
+        st.warning(f"Couldn't save profiles: {e}")
+
+def add_profile(name: str):
+    name = name.strip()
+    if not name:
+        return
+    profiles = load_profiles()
+    if name not in profiles:
+        profiles.append(name)
+        save_profiles(profiles)
 
 # ---------- App State Defaults ----------
 def init_state():
     defaults = {
         "screen": "start",              # "start" | "quiz" | "summary"
-        "num_questions": 10,
+        "num_questions": 20,
         "questions_answered": 0,
         "correct_count": 0,
         "session_started_at": None,
@@ -79,10 +115,15 @@ def init_state():
         "awaiting_continue": False,
         "last_was_correct": None,
         "last_feedback": "",
-        # NEW: selected dataset
-        "available_sets": [],           # list of csv paths
-        "selected_csv": None,           # current selection
-        "last_loaded_csv": None,        # to detect changes and reload
+        # datasets
+        "available_sets": [],
+        "selected_csv": None,
+        "last_loaded_csv": None,
+        # profiles
+        "profiles": [],
+        "selected_profile": NO_PROFILE_LABEL,  # default to no-save mode
+        "last_loaded_profile": None,
+        "new_profile_name": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -153,20 +194,25 @@ def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
     return questions_list
 
 def ensure_quiz_data_loaded():
-    """(Re)load quiz_data if needed or if the dataset selection changed."""
-    # dataset changed?
+    """(Re)load quiz_data if dataset or profile selection changed."""
     dataset_changed = (
         st.session_state.quiz_data is None or
-        st.session_state.selected_csv != st.session_state.last_loaded_csv
+        st.session_state.selected_csv != st.session_state.last_loaded_csv or
+        st.session_state.selected_profile != st.session_state.last_loaded_profile
     )
     if dataset_changed and st.session_state.selected_csv:
         st.session_state.quiz_data = load_questions(st.session_state.selected_csv)
         st.session_state.last_loaded_csv = st.session_state.selected_csv
-        load_progress(merge=True)  # pull prior intervals for this set, if any
+        st.session_state.last_loaded_profile = st.session_state.selected_profile
+        # Merge saved SRS schedule only if we are in a saving profile
+        if st.session_state.selected_profile != NO_PROFILE_LABEL:
+            load_progress(merge=True)
 
-# ---------- Load/save progress (per dataset; UPDATED) ----------
+# ---------- Load/save/reset progress (per dataset & profile) ----------
 def save_progress():
-    path = progress_path_for(st.session_state.selected_csv or "default")
+    path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
+    if path is None:
+        return  # no-save mode
     try:
         with open(path, "w") as f:
             json.dump(st.session_state.quiz_data, f, indent=2, default=str)
@@ -174,7 +220,9 @@ def save_progress():
         st.warning(f"Couldn't save progress to '{path}': {e}")
 
 def load_progress(merge=False):
-    path = progress_path_for(st.session_state.selected_csv or "default")
+    path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
+    if path is None:
+        return  # no-save mode
     try:
         with open(path) as f:
             saved = json.load(f)
@@ -191,6 +239,22 @@ def load_progress(merge=False):
         pass
     except Exception as e:
         st.warning(f"Couldn't load prior progress from '{path}': {e}")
+
+def reset_progress_for_current_set():
+    """Delete the progress file for the current (dataset, profile)."""
+    path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+            st.success("Progress reset for this set.")
+        except Exception as e:
+            st.warning(f"Couldn't delete progress file: {e}")
+    # also reset in-memory intervals to defaults
+    if st.session_state.quiz_data:
+        now_iso = datetime.now().isoformat()
+        for q in st.session_state.quiz_data:
+            q["interval"] = 1
+            q["next_time"] = now_iso
 
 # ---------- Quiz helpers ----------
 def due_indexes():
@@ -275,19 +339,48 @@ def show_question(idx):
 
 # ---------- Screens ----------
 def start_screen():
-    # (NEW) discover sets on each visit to start screen
+    # Load profiles & datasets each time you hit Start
+    st.session_state.profiles = load_profiles()
     st.session_state.available_sets = list_question_sets(".")
     if not st.session_state.available_sets:
         st.error("No CSV question sets found in this repository. Add a CSV with headers like: question, optionA..D, answer.")
         return
 
-    # Default selection: persist previous or first one
+    # Default dataset selection
     if not st.session_state.selected_csv or st.session_state.selected_csv not in st.session_state.available_sets:
         st.session_state.selected_csv = st.session_state.available_sets[0]
 
     st.header("Start a practice session")
 
-    # Dataset picker (NEW)
+    # Profile picker
+    profile_options = [NO_PROFILE_LABEL] + st.session_state.profiles
+    if st.session_state.selected_profile not in profile_options:
+        st.session_state.selected_profile = NO_PROFILE_LABEL
+    st.selectbox(
+        "Profile",
+        options=profile_options,
+        index=profile_options.index(st.session_state.selected_profile),
+        key="selected_profile",
+        help="Choose a profile to save progress, or 'No profile' to practice without saving."
+    )
+
+    # Add a new profile
+    with st.expander("Add a new profile"):
+        st.text_input("New profile name", key="new_profile_name", placeholder="e.g., Ilse, Student A")
+        cols = st.columns([1, 1, 4])
+        if cols[0].button("Add profile"):
+            name = st.session_state.new_profile_name.strip()
+            if not name:
+                st.warning("Please enter a name.")
+            elif name == NO_PROFILE_LABEL:
+                st.warning("That name is reserved. Pick another.")
+            else:
+                add_profile(name)
+                st.session_state.new_profile_name = ""
+                st.success(f"Profile '{name}' added.")
+                st.rerun()
+
+    # Dataset picker
     st.selectbox(
         "Choose a question set (CSV)",
         options=st.session_state.available_sets,
@@ -295,12 +388,21 @@ def start_screen():
         key="selected_csv"
     )
 
-    # Load/refresh quiz data if selection changed
+    # Load/refresh quiz data if selection or profile changed
     ensure_quiz_data_loaded()
 
-    # Info about due items for this set
+    # Info about due items for this set (for this profile if saving)
     currently_due = len(due_indexes()) if st.session_state.quiz_data else 0
-    st.info(f"Questions currently due in this set: **{currently_due}**")
+    st.info(
+        f"Profile: **{st.session_state.selected_profile}**  •  "
+        f"Due in this set: **{currently_due}**"
+    )
+
+    # Reset progress (only if saving with a profile)
+    if st.session_state.selected_profile != NO_PROFILE_LABEL:
+        if st.button("Reset progress for this set"):
+            reset_progress_for_current_set()
+            st.rerun()
 
     # Session size
     st.session_state.num_questions = st.number_input(
@@ -311,7 +413,7 @@ def start_screen():
         step=1
     )
 
-    if st.button("Start Session", type="primary"):
+    if st.button("Start Session ▶", type="primary"):
         st.session_state.questions_answered = 0
         st.session_state.correct_count = 0
         st.session_state.session_started_at = datetime.now().isoformat()
@@ -335,7 +437,10 @@ def quiz_screen():
     n = st.session_state.num_questions
     answered = st.session_state.questions_answered
     st.progress(answered / n if n else 0.0)
-    st.caption(f"Question {min(answered + 1, n)} of {n}")
+    st.caption(
+        f"Question {min(answered + 1, n)} of {n}  •  "
+        f"Profile: {st.session_state.selected_profile}"
+    )
 
     # Keep the same question until Continue after Submit
     if st.session_state.current_question_idx is None:
@@ -370,7 +475,10 @@ def summary_screen():
         st.write("No questions were due this time. Nice and caught up!")
 
     due_count = len(due_indexes())
-    st.caption(f"Currently due for review: **{due_count}** question(s).")
+    st.caption(
+        f"Currently due for review: **{due_count}** question(s).  •  "
+        f"Profile: {st.session_state.selected_profile}"
+    )
 
     if st.button("Return to Start", type="primary"):
         st.session_state.screen = "start"
@@ -388,3 +496,4 @@ elif screen == "quiz":
     quiz_screen()
 else:
     summary_screen()
+
