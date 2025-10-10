@@ -1,4 +1,4 @@
-"question,optionA,optionB,optionC,optionD,answer"
-"What is the capital of Japan?,Seoul,Tokyo,Kyoto,Osaka,Tokyo"
-"Which planet is known as the Red Planet?,Earth,Venus,Mars,Jupiter,Mars"
-"Who developed the theory of relativity?,Einstein,Newton,Tesla,Bohr,Einstein"
+question,optionA,optionB,optionC,optionD,answer
+What is the capital of Japan?,Seoul,Tokyo,Kyoto,Osaka,Tokyo
+Which planet is known as the Red Planet?,Earth,Venus,Mars,Jupiter,Mars
+Who developed the theory of relativity?,Einstein,Newton,Tesla,Bohr,Einstein
