@@ -20,7 +20,7 @@ st.caption("Questions return sooner if you miss them!")
 
 # ---- Load questions from CSV ----
 @st.cache_data
-def load_questions(csv_file="questions.csv"):
+def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
     df = pd.read_csv(csv_file, sep=",", engine="python")
     df.columns = df.columns.str.strip()  # remove any spaces around header names
     questions_list = []
