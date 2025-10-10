@@ -195,30 +195,40 @@ def show_question(idx):
         correct_text = q["options"][correct_idx]
     
         if selected_idx == correct_idx:
+            # ✅ correct → show green feedback briefly, then auto-advance
             st.session_state.correct_count += 1
             q["interval"] = max(1, int(q["interval"] * 2))
             st.session_state.last_was_correct = True
             st.session_state.last_feedback = "✅ Correct!"
-            # --- auto-advance on correct ---
+    
+            # update spaced repetition data
             q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
             st.session_state.questions_answered += 1
             save_progress()
+    
+            # show feedback briefly before moving on
+            st.success("✅ Correct!")
+            time.sleep(1.2)  # <-- short pause for feedback visibility
+    
             st.session_state.awaiting_continue = False
             st.session_state.current_question_idx = None
-            # small pause so the "Correct!" is visible briefly
-            time.sleep(0.5)
             finish_or_continue_session()
             return
+    
         else:
-            # pause on incorrect (requires Continue)
+            # ❌ incorrect → pause and show correction until Continue
             q["interval"] = 1
             st.session_state.last_was_correct = False
             st.session_state.last_feedback = f"❌ Wrong! The correct answer was {correct_letter}. {correct_text}"
+    
             q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
             st.session_state.questions_answered += 1
             save_progress()
+    
+            # now pause: wait for Continue
             st.session_state.awaiting_continue = True
             st.rerun()
+
 
 # ---------- Screens ----------
 def start_screen():
