@@ -660,6 +660,17 @@ def quiz_screen():
     idx = st.session_state.current_question_idx
     st.subheader(st.session_state.quiz_data[idx]["question"])
     show_question(idx)
+    
+    # allow returning to start during quiz
+    st.markdown("---")    
+    if st.button("🏠 Return to Start", type="secondary"):
+        st.session_state.screen = "start"
+        st.session_state.current_question_idx = None
+        st.session_state.awaiting_continue = False
+        st.session_state.last_was_correct = None
+        st.session_state.last_feedback = ""
+        st.rerun()
+
 
 def summary_screen():
     total = st.session_state.questions_answered
