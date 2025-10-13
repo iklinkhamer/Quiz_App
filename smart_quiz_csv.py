@@ -48,6 +48,13 @@ PRE_READ_SUMMARY = "Summary only"
 PRE_READ_FULL = "Full reading"
 PRE_READ_MODES = [PRE_READ_NONE, PRE_READ_SUMMARY, PRE_READ_FULL]
 
+# --- Rotation & Spaced Practice Config (NEW) ---
+ACTIVE_POOL_SIZE = 10          # how many questions to drill at once
+GRADUATE_STREAK = 3            # correct-in-a-row needed to graduate a question
+BASE_INTERVAL_MIN = 1          # minutes after a wrong answer (short retry)
+INTERVAL_GROWTH_FACTOR = 2.0   # doubling on each correct
+
+
 def safe_name(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", s).strip("_").lower()
 
@@ -231,9 +238,110 @@ def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
             "answer_letter": letter,
             "answer_idx": correct_idx,
             "interval": 1,
-            "next_time": now_iso
+            "next_time": now_iso,
+            "status": "unseen",          # unseen | active | deferred
+            "streak": 0,                 # consecutive correct answers
+            "seen_count": 0              # total times shown (nice for debugging)
         })
     return questions_list
+
+# ---------- Rotation helpers (NEW) ----------
+def normalize_question_fields(q: dict):
+    """Add defaults for older progress files."""
+    q.setdefault("status", "unseen")
+    q.setdefault("streak", 0)
+    q.setdefault("seen_count", 0)
+    q.setdefault("interval", 1)
+    q.setdefault("next_time", datetime.now().isoformat())
+    return q
+
+def ensure_active_pool():
+    """
+    Promote unseen questions into 'active' until we have ACTIVE_POOL_SIZE active items,
+    excluding questions permanently deferred (they'll still reappear when due).
+    """
+    if not st.session_state.quiz_data:
+        return
+    # normalize (in case of older saves)
+    for q in st.session_state.quiz_data:
+        normalize_question_fields(q)
+
+    active = [q for q in st.session_state.quiz_data if q["status"] == "active"]
+    need = max(0, ACTIVE_POOL_SIZE - len(active))
+    if need <= 0:
+        return
+
+    # FIFO: promote earliest unseen items first
+    unseen = [q for q in st.session_state.quiz_data if q["status"] == "unseen"]
+    for q in unseen[:need]:
+        q["status"] = "active"
+        q["interval"] = max(1, int(q.get("interval", 1)))
+        q["next_time"] = datetime.now().isoformat()
+
+def graduate_question(q: dict):
+    """
+    Move a well-known question out of the active pool and schedule it further out.
+    It will come back later when it's due.
+    """
+    q["status"] = "deferred"
+    # push it out using current interval (already grown) – or give it an extra push
+    minutes = max(5, int(q.get("interval", 1)))  # at least 5 minutes
+    q["next_time"] = (datetime.now() + timedelta(minutes=minutes)).isoformat()
+    q["streak"] = 0  # optional: reset streak once it's graduated
+
+def active_or_deferred_due_indexes():
+    """Return indexes of questions that are due and either active or deferred."""
+    now = datetime.now()
+    data = st.session_state.quiz_data or []
+    due = []
+    for i, q in enumerate(data):
+        if q.get("status") in ("active", "deferred"):
+            try:
+                if datetime.fromisoformat(q["next_time"]) <= now:
+                    due.append(i)
+            except Exception:
+                # if broken timestamp, consider it due soon
+                due.append(i)
+    return due
+
+def pick_next_question_idx_rotation():
+    """
+    Priority:
+    1) Due 'active' questions (drill set)
+    2) Due 'deferred' questions (spaced checks)
+    3) If nothing due, pick the 'active' question with the earliest next_time
+    """
+    data = st.session_state.quiz_data or []
+    now = datetime.now()
+
+    active_ids = [i for i, q in enumerate(data) if q.get("status") == "active"]
+    deferred_ids = [i for i, q in enumerate(data) if q.get("status") == "deferred"]
+
+    due = active_or_deferred_due_indexes()
+    due_active = [i for i in due if i in active_ids]
+    if due_active:
+        return random.choice(due_active)
+
+    due_deferred = [i for i in due if i in deferred_ids]
+    if due_deferred:
+        return random.choice(due_deferred)
+
+    # Nothing due: pick the soonest-next active item (keeps drilling the pool)
+    if active_ids:
+        active_sorted = sorted(
+            active_ids,
+            key=lambda i: datetime.fromisoformat(data[i]["next_time"])
+                          if "next_time" in data[i] else now
+        )
+        return active_sorted[0]
+
+    # No active (rare) → make sure we refill then pick again
+    ensure_active_pool()
+    active_ids = [i for i, q in enumerate(st.session_state.quiz_data) if q.get("status") == "active"]
+    if active_ids:
+        return random.choice(active_ids)
+
+    return None
 
 # ---------- Reading loader (NEW) ----------
 def extract_chapter_stem_from_csv(csv_path: str) -> str | None:
@@ -316,6 +424,9 @@ def ensure_quiz_data_loaded():
     )
     if dataset_changed and st.session_state.selected_csv:
         st.session_state.quiz_data = load_questions(st.session_state.selected_csv)
+        # after loading quiz_data and merging progress
+        for q in st.session_state.quiz_data:
+            normalize_question_fields(q)
         st.session_state.last_loaded_csv = st.session_state.selected_csv
         st.session_state.last_loaded_profile = st.session_state.selected_profile
         # Merge saved SRS schedule only if we are in a saving profile
@@ -416,40 +527,57 @@ def show_question(idx):
     submitted = st.button("Submit", type="primary", key=f"submit_q{idx}")
 
     if submitted:
+        q["seen_count"] = int(q.get("seen_count", 0)) + 1
         correct_idx = q["answer_idx"]
         correct_letter = LETTERS[correct_idx]
         correct_text = q["options"][correct_idx]
-
+    
         if selected_idx == correct_idx:
-            # ✅ correct → brief green feedback, then auto-advance
+            # ✅ correct
             st.session_state.correct_count += 1
-            q["interval"] = max(1, int(q["interval"] * 2))
+    
+            # grow interval (spaced practice)
+            q["interval"] = max(1, int(q.get("interval", 1) * INTERVAL_GROWTH_FACTOR))
+            q["streak"] = int(q.get("streak", 0)) + 1
             st.session_state.last_was_correct = True
             st.session_state.last_feedback = "✅ Correct!"
-
+    
+            # next appearance
             q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
+    
+            # Graduation check (only for 'active' pool items)
+            if q.get("status") == "active" and q["streak"] >= GRADUATE_STREAK:
+                graduate_question(q)
+                ensure_active_pool()  # pull a new unseen into the active set
+    
             st.session_state.questions_answered += 1
             save_progress()
-
+    
             st.success("✅ Correct!")
             time.sleep(0.7)
-
+    
             st.session_state.awaiting_continue = False
             st.session_state.current_question_idx = None
             finish_or_continue_session()
             return
         else:
-            # ❌ incorrect → pause and show correction until Continue
-            q["interval"] = 1
+            # ❌ incorrect – shorten interval, keep in current rotation, reset streak
+            q["interval"] = BASE_INTERVAL_MIN
+            q["streak"] = 0
             st.session_state.last_was_correct = False
             st.session_state.last_feedback = f"❌ Wrong! The correct answer was {correct_letter}. {correct_text}"
-
+    
             q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
+            # ensure it remains in 'active'; if it was deferred and you get it wrong, pull it back in
+            if q.get("status") == "deferred":
+                q["status"] = "active"
+    
             st.session_state.questions_answered += 1
             save_progress()
-
+    
             st.session_state.awaiting_continue = True
             st.rerun()
+
 
 # ---------- Screens ----------
 def start_screen():
@@ -580,6 +708,10 @@ def start_screen():
             st.session_state.screen = "reading"
         else:
             st.session_state.screen = "quiz"
+            
+        # NEW: make sure we have an active pool before we start
+        ensure_quiz_data_loaded()
+        ensure_active_pool()
 
         st.rerun()
 
@@ -643,7 +775,11 @@ def quiz_screen():
 
     # Keep the same question until Continue after Submit
     if st.session_state.current_question_idx is None:
-        idx = pick_next_question_idx()
+        # OLD:
+        # idx = pick_next_question_idx()
+        
+        # NEW:
+        idx = pick_next_question_idx_rotation()
         if idx is None:
             st.success("🎉 All due questions are up to date right now.")
             if answered > 0 and not st.session_state.awaiting_continue:
