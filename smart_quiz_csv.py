@@ -21,6 +21,7 @@ import re
 import os
 import glob
 from datetime import datetime, timedelta
+from pathlib import Path  # NEW
 
 # ---------- Page Setup ----------
 st.set_page_config(page_title="🧠 QuizzyBee", layout="centered")
@@ -38,8 +39,14 @@ REQUIRED_HEADERS = {
 }
 
 PROFILES_FILE = "quiz_profiles.json"
-SETTINGS_FILE = "quiz_settings.json"   # NEW: persists defaults across runs
+SETTINGS_FILE = "quiz_settings.json"   # persists defaults across runs
 NO_PROFILE_LABEL = "No profile (don't save)"
+
+# NEW: Pre-reading modes
+PRE_READ_NONE = "Skip"
+PRE_READ_SUMMARY = "Summary only"
+PRE_READ_FULL = "Full reading"
+PRE_READ_MODES = [PRE_READ_NONE, PRE_READ_SUMMARY, PRE_READ_FULL]
 
 def safe_name(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", s).strip("_").lower()
@@ -99,9 +106,9 @@ def add_profile(name: str):
         profiles.append(name)
         save_profiles(profiles)
 
-# ---------- App-wide settings (NEW) ----------
+# ---------- App-wide settings ----------
 def load_settings() -> dict:
-    """Return {'last_profile': str, 'last_num_questions': int} if present."""
+    """Return persisted settings."""
     try:
         with open(SETTINGS_FILE) as f:
             data = json.load(f)
@@ -113,11 +120,15 @@ def load_settings() -> dict:
         pass
     return {}
 
-def save_settings(last_profile: str, last_num_questions: int):
+def save_settings(last_profile: str, last_num_questions: int, pre_read_mode: str):
     try:
         with open(SETTINGS_FILE, "w") as f:
             json.dump(
-                {"last_profile": last_profile, "last_num_questions": int(last_num_questions)},
+                {
+                    "last_profile": last_profile,
+                    "last_num_questions": int(last_num_questions),
+                    "pre_read_mode": pre_read_mode,
+                },
                 f, indent=2
             )
     except Exception as e:
@@ -125,11 +136,11 @@ def save_settings(last_profile: str, last_num_questions: int):
 
 # ---------- App State Defaults ----------
 def init_state():
-    settings = load_settings()  # NEW: load defaults from previous run
+    settings = load_settings()
 
     defaults = {
-        "screen": "start",              # "start" | "quiz" | "summary"
-        "num_questions": settings.get("last_num_questions", 20),  # NEW default
+        "screen": "start",              # "start" | "reading" | "quiz" | "summary"
+        "num_questions": settings.get("last_num_questions", 20),
         "questions_answered": 0,
         "correct_count": 0,
         "session_started_at": None,
@@ -145,11 +156,15 @@ def init_state():
         "last_loaded_csv": None,
         # profiles
         "profiles": [],
-        "selected_profile": settings.get("last_profile", NO_PROFILE_LABEL),  # NEW default
+        "selected_profile": settings.get("last_profile", NO_PROFILE_LABEL),
         "last_loaded_profile": None,
         "new_profile_name": "",
-        # reset confirmation state (NEW)
+        # reset confirmation state
         "confirm_reset": False,
+        # NEW: pre-reading
+        "pre_read_mode": settings.get("pre_read_mode", PRE_READ_NONE),
+        "reading_payload": None,        # loaded reading JSON dict
+        "reading_stem": None,           # e.g. "ch01_Organisation_of_the_Body"
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -219,6 +234,78 @@ def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
             "next_time": now_iso
         })
     return questions_list
+
+# ---------- Reading loader (NEW) ----------
+def extract_chapter_stem_from_csv(csv_path: str) -> str | None:
+    """
+    Try to get a stem like 'ch01_Organisation_of_the_Body' from the CSV filename.
+    Works with names like:
+      mcqs_ch01_Organisation_of_the_Body.csv
+      ch01_Organisation_of_the_Body.csv
+    """
+    name = Path(csv_path).stem
+    m = re.search(r"(ch\d{2}_[A-Za-z0-9_]+)$", name)
+    if m:
+        return m.group(1)
+    m = re.search(r"(ch\d{2}_.+)", name)  # fallback catch-all
+    return m.group(1) if m else None
+
+def find_reading_json_for_csv(csv_path: str) -> str | None:
+    """
+    Look for a reading file near the CSV with the same stem:
+      <dir>/<stem>.reading.json
+      <dir>/<stem>.json
+    Also supports a nested layout:
+      <dir>/<stem>/reading.json
+    """
+    p = Path(csv_path)
+    stem = extract_chapter_stem_from_csv(csv_path)
+    if not stem:
+        return None
+    candidates = [
+        p.with_name(f"{stem}.reading.json"),
+        p.with_name(f"{stem}.json"),
+        p.with_name(stem) / "reading.json",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return None
+
+def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | None]:
+    """
+    Return (payload, mode_support, stem)
+    'payload' has keys: title, reading, summary_bullets, estimated_read_time_sec.
+    'mode_support' is one of: "both", "summary_only" (if reading missing), or None if not found.
+    """
+    stem = extract_chapter_stem_from_csv(csv_path)
+    json_path = find_reading_json_for_csv(csv_path)
+    if not json_path:
+        return None, None, stem
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Normalize minimal shape
+        title = data.get("title") or stem.replace("_", " ")
+        reading = (data.get("reading") or "").strip()
+        summary_bullets = data.get("summary_bullets") or []
+        payload = {
+            "title": title,
+            "reading": reading,
+            "summary_bullets": summary_bullets,
+            "estimated_read_time_sec": int(data.get("estimated_read_time_sec") or 60),
+            "source_refs": data.get("source_refs", []),
+        }
+        if reading and summary_bullets:
+            support = "both"
+        elif summary_bullets:
+            support = "summary_only"
+        else:
+            support = None
+        return payload, support, stem
+    except Exception as e:
+        st.warning(f"Couldn't load reading JSON: {e}")
+        return None, None, stem
 
 def ensure_quiz_data_loaded():
     """(Re)load quiz_data if dataset or profile selection changed."""
@@ -421,6 +508,15 @@ def start_screen():
         key="selected_csv"
     )
 
+    # NEW: Pre-reading selection (persisted)
+    st.session_state.pre_read_mode = st.radio(
+        "Before the questions, would you like to read…",
+        PRE_READ_MODES,
+        index=PRE_READ_MODES.index(st.session_state.pre_read_mode),
+        horizontal=True,
+        help="You can choose to read the full section, a short summary, or skip reading."
+    )
+
     # Load/refresh quiz data if selection or profile changed
     ensure_quiz_data_loaded()
 
@@ -431,7 +527,7 @@ def start_screen():
         f"Due in this set: **{currently_due}**"
     )
 
-    # Reset progress (only if saving with a profile) with confirmation (NEW)
+    # Reset progress (only if saving with a profile) with confirmation
     if st.session_state.selected_profile != NO_PROFILE_LABEL:
         if not st.session_state.confirm_reset:
             if st.button("Reset progress for this set"):
@@ -458,10 +554,11 @@ def start_screen():
         step=1
     )
 
-    # SAVE defaults continuously so they stick next time (NEW)
+    # SAVE defaults so they stick next time
     save_settings(
         last_profile=st.session_state.selected_profile,
-        last_num_questions=st.session_state.num_questions
+        last_num_questions=st.session_state.num_questions,
+        pre_read_mode=st.session_state.pre_read_mode,
     )
 
     if st.button("Start Session ▶", type="primary"):
@@ -472,6 +569,57 @@ def start_screen():
         st.session_state.awaiting_continue = False
         st.session_state.last_was_correct = None
         st.session_state.last_feedback = ""
+
+        # NEW: If reading is requested and available, go to reading screen; else quiz
+        payload, support, stem = load_reading_payload(st.session_state.selected_csv)
+        st.session_state.reading_payload = payload
+        st.session_state.reading_stem = stem
+        want_reading = (st.session_state.pre_read_mode != PRE_READ_NONE)
+
+        if want_reading and payload and (support == "both" or (support == "summary_only" and st.session_state.pre_read_mode == PRE_READ_SUMMARY)):
+            st.session_state.screen = "reading"
+        else:
+            st.session_state.screen = "quiz"
+
+        st.rerun()
+
+def reading_screen():
+    """NEW: Show reading or summary, then proceed to quiz."""
+    payload = st.session_state.reading_payload
+    stem = st.session_state.reading_stem or "Reading"
+    if not payload:
+        st.info("No reading material found for this chapter. Starting the quiz.")
+        st.session_state.screen = "quiz"
+        st.rerun()
+        return
+
+    st.header(payload.get("title", stem).replace("_", " "))
+
+    mode = st.session_state.pre_read_mode
+    if mode == PRE_READ_FULL and payload.get("reading"):
+        # Full reading
+        est = payload.get("estimated_read_time_sec", 60)
+        st.caption(f"Estimated read time ~ {max(1, int(est/60))} min")
+        st.write(payload["reading"])
+        if payload.get("summary_bullets"):
+            with st.expander("Quick summary"):
+                for b in payload["summary_bullets"]:
+                    st.markdown(f"- {b}")
+    elif mode == PRE_READ_SUMMARY and payload.get("summary_bullets"):
+        # Summary only
+        st.subheader("Summary")
+        for b in payload["summary_bullets"]:
+            st.markdown(f"- {b}")
+        if payload.get("reading"):
+            with st.expander("Read the full section"):
+                st.write(payload["reading"])
+    else:
+        st.info("This chapter has no matching reading/summary. Starting the quiz.")
+        st.session_state.screen = "quiz"
+        st.rerun()
+        return
+
+    if st.button("Start Quiz ▶", type="primary"):
         st.session_state.screen = "quiz"
         st.rerun()
 
@@ -543,7 +691,10 @@ def summary_screen():
 screen = st.session_state.screen
 if screen == "start":
     start_screen()
+elif screen == "reading":  # NEW
+    reading_screen()
 elif screen == "quiz":
     quiz_screen()
 else:
     summary_screen()
+
