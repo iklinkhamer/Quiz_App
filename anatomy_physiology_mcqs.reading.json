@@ -220,6 +220,134 @@
     }
   ]
 },
+{
+  "title": "Chapter 3 - The Cell",
+  "reading": "-Objectives-",
+  "estimated_read_time_sec": 900,
+  "summary_bullets": [
+    "Cells have three main parts: plasma membrane, cytoplasm, and nucleus.",
+    "Substances cross the membrane by diffusion, osmosis, active transport, phagocytosis, pinocytosis, and exocytosis.",
+    "Osmosis is the diffusion of water across a semi-permeable membrane.",
+    "Cytoplasm contains cytosol, inclusions, and organelles such as ribosomes, ER, mitochondria, Golgi bodies, and lysosomes.",
+    "The nucleus controls cell activity and contains DNA chromosomes.",
+    "Cells divide by mitosis and meiosis.",
+    "The cell can be compared to a factory, where each organelle has a specific function."
+  ],
+  "figures": [
+    { "figure_id": "f10", "caption": "Chapter opener image", "source": "ponga (CC BY)", "url": "figures/ch03/f10.jpg" },
+    { "figure_id": "f11", "caption": "Diagram 3.1: A variety of animal cells", "url": "figures/ch03/f11.png" },
+    { "figure_id": "f12", "caption": "Diagram 3.2: Typical animal cell", "url": "figures/ch03/f12.png" },
+    { "figure_id": "f13", "caption": "Diagram 3.3: Animal cell (electron microscope)", "url": "figures/ch03/f13.png" },
+    { "figure_id": "f14", "caption": "Diagram 3.4: Plasma membrane structure", "url": "figures/ch03/f14.png" },
+    { "figure_id": "f15", "caption": "Diagram 3.5: Diffusion in a liquid", "url": "figures/ch03/f15.png" },
+    { "figure_id": "f16", "caption": "Diagram 3.6: Osmosis", "url": "figures/ch03/f16.png" },
+    { "figure_id": "f17", "caption": "Diagram 3.7: RBCs in hypotonic solution", "url": "figures/ch03/f17.png" },
+    { "figure_id": "f18", "caption": "Diagram 3.8: RBCs in hypertonic solution", "url": "figures/ch03/f18.png" },
+    { "figure_id": "f19", "caption": "Diagram 3.9: RBCs in isotonic solution", "url": "figures/ch03/f19.png" },
+    { "figure_id": "f20", "caption": "Diagram 3.10: Phagocytosis", "url": "figures/ch03/f20.png" },
+    { "figure_id": "f21", "caption": "Diagram 3.11: Rough endoplasmic reticulum", "url": "figures/ch03/f21.png" },
+    { "figure_id": "f22", "caption": "Diagram 3.12: Mitochondrion", "url": "figures/ch03/f22.png" },
+    { "figure_id": "f23", "caption": "Diagram 3.13: Golgi body", "url": "figures/ch03/f23.png" },
+    { "figure_id": "f24", "caption": "Diagram 3.14: Cell with enlarged chromosome", "url": "figures/ch03/f24.png" },
+    { "figure_id": "f25", "caption": "Diagram 3.15: Human chromosomes", "url": "figures/ch03/f25.png" },
+    { "figure_id": "f26", "caption": "Diagram 3.16: Mitosis", "url": "figures/ch03/f26.png" }
+    { "figure_id": "f27", "caption": "Diagram 3.17: Meiosis", "url": "figures/ch03/f27.png" }
+  ],
+  "micro_notes": {
+    "cell_structure": {
+      "title": "3.2 The Cell",
+      "markdown": "- The cell is the basic unit of life.\n- Most cells are microscopic; the ostrich egg is an exception.\n- Main parts: plasma membrane, cytoplasm, nucleus.",
+      "image": "f12"
+    },
+    "plasma_membrane": {
+      "title": "3.3 The Plasma Membrane",
+      "markdown": "- Separates cell contents from surroundings.\n- Made of a phospholipid bilayer with embedded proteins.\n- Controls what enters and leaves the cell.",
+      "image": "f14"
+    },
+    "diffusion": {
+      "title": "3.3.1 Diffusion",
+      "markdown": "- Molecules move from high to low concentration.\n- Passive process; no energy required.\n- Important for O₂, CO₂, and nutrient exchange.",
+      "image": "f15"
+    },
+    "osmosis": {
+      "title": "3.3.1 Osmosis",
+      "markdown": "- Diffusion of water across a semi-permeable membrane.\n- Water moves from dilute to concentrated side.\n- Important in cell water balance and kidneys.",
+      "image": "f16"
+    },
+    "tonicity": {
+      "title": "3.3.1 Tonicity and Red Blood Cells",
+      "markdown": "- Hypotonic: water enters cell → may burst (haemolysis).\n- Hypertonic: water leaves cell → shrinks.\n- Isotonic: no net movement (normal saline).",
+      "images": ["f17", "f18", "f19"]
+    },
+    "active_transport": {
+      "title": "3.3.1 Active Transport",
+      "markdown": "- Moves substances against concentration gradient.\n- Requires energy (ATP).\n- Maintains Na⁺/K⁺ balance in nerve cells."
+    },
+    "phagocytosis": {
+      "title": "3.3.1 Phagocytosis",
+      "markdown": "- 'Cell eating' — engulfing solid particles like bacteria.\n- Uses energy; vital for white blood cell defense.",
+      "image": "f20"
+    },
+    "pinocytosis": {
+      "title": "3.3.1 Pinocytosis",
+      "markdown": "- 'Cell drinking' — intake of fluids.\n- Common in most cells."
+    },
+    "exocytosis": {
+      "title": "3.3.1 Exocytosis",
+      "markdown": "- Substances leave the cell via vesicles.\n- Used by secretory and nerve cells."
+    },
+    "cytoplasm": {
+      "title": "3.4 The Cytoplasm",
+      "markdown": "- Jelly-like cytosol with inclusions and organelles.\n- Site of many cellular reactions."
+    },
+    "ribosomes": {
+      "title": "Ribosomes",
+      "markdown": "- Tiny organelles that make proteins.\n- Found free in cytoplasm or on rough ER.",
+      "image": "f21"
+    },
+    "endoplasmic_reticulum": {
+      "title": "Endoplasmic Reticulum",
+      "markdown": "- Network of membranes from nucleus to plasma membrane.\n- Smooth ER makes fats; rough ER (with ribosomes) makes proteins.",
+      "image": "f21"
+    },
+    "mitochondria": {
+      "title": "Mitochondria",
+      "markdown": "- Powerhouses of the cell.\n- Site of cellular respiration (glucose + oxygen → CO₂ + water + energy).",
+      "image": "f22"
+    },
+    "golgi": {
+      "title": "Golgi Apparatus",
+      "markdown": "- Modifies and packages proteins and fats.\n- Forms vesicles for transport or secretion.",
+      "image": "f23"
+    },
+    "lysosomes": {
+      "title": "Lysosomes",
+      "markdown": "- Contain enzymes to digest bacteria, debris, and old organelles.\n- Important for cell cleanup and recycling."
+    },
+    "microtubules": {
+      "title": "Microfilaments and Microtubules",
+      "markdown": "- Responsible for cell shape and movement.\n- Form cilia, flagella, and centrioles used in cell division."
+    },
+    "nucleus": {
+      "title": "3.5 The Nucleus",
+      "markdown": "- Largest structure in the cell.\n- Controls activity and contains DNA.\n- Surrounded by double membrane with pores.\n- Contains nucleoli for ribosome production.",
+      "images": ["f24", "f25"]
+    },
+    "chromosomes": {
+      "title": "3.5.1 Chromosomes",
+      "markdown": "- Contain DNA and control cell activity.\n- Visible when cell divides.\n- Constant number per species (e.g., humans 46)."
+    },
+    "cell_division": {
+      "title": "3.6 Cell Division",
+      "markdown": "- Mitosis: produces identical cells for growth and repair.\n- Meiosis: produces gametes with half the chromosomes.",
+      "image": ["f26","f27"]
+    },
+    "cell_factory": {
+      "title": "3.7 The Cell as a Factory",
+      "markdown": "- Nucleus = director\n- Mitochondria = power supply\n- Ribosomes = product makers\n- Golgi = packaging\n- ER = transport\n- Lysosomes = waste disposal\n- Membrane = factory wall and gates"
+    }
+  }
+},
   {
     "title": "Chapter 16 - Endocrine System",
     "reading": "-Objectives-\n• Characteristics of endocrine glands & hormones\n• Positions of the main endocrine glands\n• Pituitary–hypothalamus relationship\n• Key hormones from pituitary, pineal, thyroid, parathyroid, adrenals, pancreas, ovaries, testes\n• Homeostasis & feedback; control of water balance, blood volume, acid/base",
