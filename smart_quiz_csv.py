@@ -23,6 +23,7 @@ import glob
 from datetime import datetime, timedelta
 from pathlib import Path  # NEW
 
+
 # ---------- Page Setup ----------
 st.set_page_config(page_title="🧠 QuizzyBee", layout="centered")
 
@@ -56,6 +57,41 @@ INTERVAL_GROWTH_FACTOR = 2.0   # doubling on each correct
 
 # --- Micro-notes throttle (NEW) ---
 DEFAULT_INFO_REPEAT_MIN = 10   # minimum minutes before showing the same concept again in-session
+
+# --- Quick-check helpers (section + classic) ---
+TAGGED_CSV_PATH = "anatomy_physiology_mcqs_tagged.csv"   # <- set to your actual path
+
+def _slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (s or "").lower()).strip("_")[:80]
+
+def section_id_from_titles(chapter_title: str, section_title: str) -> str:
+    return f"{_slug(chapter_title.split(' - ')[0])}::{_slug(section_title)}"
+
+@st.cache_data
+def load_tagged_mcqs(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    if "topic_confidence" in df.columns:
+        df["topic_confidence"] = pd.to_numeric(df["topic_confidence"], errors="coerce").fillna(0.0)
+    if "topic_section_confidence" in df.columns:
+        df["topic_section_confidence"] = pd.to_numeric(df["topic_section_confidence"], errors="coerce").fillna(0.0)
+    # Normalize question column name to 'question'
+    if "Question" in df.columns and "question" not in df.columns:
+        df = df.rename(columns={"Question": "question"})
+    return df
+
+def qc_pick_for_section(df: pd.DataFrame, chapter_title: str, section_title: str,
+                        n: int = 5, min_conf: float = 0.55) -> list[str]:
+    """Return a list of question texts for this section (highest confidence first)."""
+    sid = section_id_from_titles(chapter_title, section_title)
+    mask = (df.get("topic_section_id", "") == sid) & (df.get("topic_section_confidence", 0.0) >= min_conf)
+    out = df.loc[mask].sort_values("topic_section_confidence", ascending=False)["question"].dropna().tolist()
+    return out[:n]
+
+def qc_pick_for_chapter(df: pd.DataFrame, chapter_title: str,
+                        n: int = 5, min_conf: float = 0.50) -> list[str]:
+    mask = (df.get("topic_chapter", "") == chapter_title) & (df.get("topic_confidence", 0.0) >= min_conf)
+    out = df.loc[mask].sort_values("topic_confidence", ascending=False)["question"].dropna().tolist()
+    return out[:n]
 
 
 def safe_name(s: str) -> str:
@@ -180,6 +216,14 @@ def init_state():
         "shown_info_keys": [],          # concepts shown this session
         "last_info_key": None,          # last concept shown (for change detection)
         "last_info_shown_at": {},       # {info_key: iso_str} throttle per concept
+        # --- Quick-check mode ---
+        "quiz_mode": "Classic Quiz Mode",      # or "Section Quick-Checks"
+        "qc_num_qs": 5,
+        "qc_min_conf": 0.55,
+        "qc_fallback_to_chapter": True,
+        "qc_filter_questions": None,           # set[str]: only serve these question texts if not None
+        "current_chapter_title": None,         # filled from reading payload (title)
+        "current_section_title": None,         # set when showing a micro-note or reading-section
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -285,10 +329,10 @@ def ensure_active_pool():
 
     # FIFO: promote earliest unseen items first
     unseen = [q for q in st.session_state.quiz_data if q["status"] == "unseen"]
-    for q in unseen[:need]:
-        q["status"] = "active"
-        q["interval"] = max(1, int(q.get("interval", 1)))
-        q["next_time"] = datetime.now().isoformat()
+    # Only promote questions that the filter allows (if set)
+    if st.session_state.get("qc_filter_questions"):
+        unseen = [q for q in unseen if str(q.get("question","")) in st.session_state.qc_filter_questions]
+
 
 def graduate_question(q: dict):
     """
@@ -302,19 +346,18 @@ def graduate_question(q: dict):
     q["streak"] = 0  # optional: reset streak once it's graduated
 
 def active_or_deferred_due_indexes():
-    """Return indexes of questions that are due and either active or deferred."""
     now = datetime.now()
     data = st.session_state.quiz_data or []
     due = []
     for i, q in enumerate(data):
-        if q.get("status") in ("active", "deferred"):
+        if q.get("status") in ("active", "deferred") and _qc_allow_index(i):
             try:
                 if datetime.fromisoformat(q["next_time"]) <= now:
                     due.append(i)
             except Exception:
-                # if broken timestamp, consider it due soon
                 due.append(i)
     return due
+
 
 def pick_next_question_idx_rotation():
     """
@@ -326,8 +369,8 @@ def pick_next_question_idx_rotation():
     data = st.session_state.quiz_data or []
     now = datetime.now()
 
-    active_ids = [i for i, q in enumerate(data) if q.get("status") == "active"]
-    deferred_ids = [i for i, q in enumerate(data) if q.get("status") == "deferred"]
+    active_ids = [i for i, q in enumerate(data) if q.get("status") == "active" and _qc_allow_index(i)]
+    deferred_ids = [i for i, q in enumerate(data) if q.get("status") == "deferred" and _qc_allow_index(i)]
 
     due = active_or_deferred_due_indexes()
     due_active = [i for i in due if i in active_ids]
@@ -354,6 +397,18 @@ def pick_next_question_idx_rotation():
         return random.choice(active_ids)
 
     return None
+
+def _qc_allow_index(i: int) -> bool:
+    """Return True if index i is allowed by the current quick-check filter (or no filter)."""
+    flt = st.session_state.get("qc_filter_questions")
+    if not flt:
+        return True
+    try:
+        q = st.session_state.quiz_data[i]
+        return str(q.get("question","")) in flt
+    except Exception:
+        return False
+
 
 # ---------- Reading loader (NEW) ----------
 def extract_chapter_stem_from_csv(csv_path: str) -> str | None:
@@ -822,6 +877,89 @@ def reading_screen():
         st.session_state.screen = "quiz"
         st.rerun()
         return
+    
+    # --- Quick-Check Options (NEW) ---
+    st.markdown("---")
+    st.subheader("Quick Check Options")
+    
+    # Default contextual titles from reading payload
+    st.session_state.current_chapter_title = payload.get("title") or st.session_state.current_chapter_title
+    # If you track the specific section being read, set current_section_title accordingly.
+    # Fallback: let user type a section title (optional)
+    hint_section = st.text_input(
+        "Section title (optional, to target Section Quick-Checks)",
+        st.session_state.get("current_section_title") or "",
+        placeholder="e.g., 2.3 Naming Animals (Heads-up)"
+    )
+    if hint_section.strip():
+        st.session_state.current_section_title = hint_section.strip()
+    
+    colA, colB, colC = st.columns([1.2, 1, 1])
+    with colA:
+        st.session_state.quiz_mode = st.radio(
+            "Mode",
+            options=["Section Quick-Checks", "Classic Quiz Mode"],
+            index=0 if st.session_state.quiz_mode == "Section Quick-Checks" else 1,
+            help="Section = only questions tagged to this section; Classic = your usual quiz."
+        )
+    with colB:
+        st.session_state.qc_num_qs = st.number_input("How many questions?", min_value=3, max_value=15,
+                                                     value=int(st.session_state.qc_num_qs), step=1)
+    with colC:
+        st.session_state.qc_min_conf = st.slider("Min. confidence", 0.30, 0.90, float(st.session_state.qc_min_conf), 0.05)
+    
+    st.session_state.qc_fallback_to_chapter = st.checkbox(
+        "Fallback to chapter if section is sparse",
+        value=bool(st.session_state.qc_fallback_to_chapter)
+    )
+    
+    if st.button("▶ Start Quick Checks (use chosen mode)"):
+        # Build the quick-check filter set based on the chosen mode
+        try:
+            df_tag = load_tagged_mcqs(TAGGED_CSV_PATH)
+        except Exception as e:
+            st.error(f"Couldn't load tagged MCQs: {e}")
+            df_tag = None
+    
+        selected_qs = []
+        if df_tag is not None:
+            ch_title = st.session_state.get("current_chapter_title") or payload.get("title") or ""
+            sec_title = st.session_state.get("current_section_title")
+    
+            if st.session_state.quiz_mode == "Section Quick-Checks" and sec_title:
+                selected_qs = qc_pick_for_section(
+                    df_tag, ch_title, sec_title,
+                    n=int(st.session_state.qc_num_qs),
+                    min_conf=float(st.session_state.qc_min_conf)
+                )
+                if st.session_state.qc_fallback_to_chapter and len(selected_qs) < int(st.session_state.qc_num_qs):
+                    # top-up from chapter
+                    need = int(st.session_state.qc_num_qs) - len(selected_qs)
+                    topup = qc_pick_for_chapter(
+                        df_tag, ch_title, n=need, min_conf=max(0.45, float(st.session_state.qc_min_conf) - 0.1)
+                    )
+                    selected_qs.extend([q for q in topup if q not in selected_qs])
+            else:
+                # Classic Quiz Mode using tags to choose high-confidence for the chapter (optional)
+                selected_qs = qc_pick_for_chapter(
+                    df_tag, ch_title, n=int(st.session_state.qc_num_qs),
+                    min_conf=max(0.45, float(st.session_state.qc_min_conf) - 0.05)
+                )
+    
+        # Set/clear the filter
+        if selected_qs:
+            st.session_state.qc_filter_questions = set(map(str, selected_qs))
+            st.success(f"Loaded {len(selected_qs)} quick-check questions.")
+        else:
+            st.session_state.qc_filter_questions = None
+            st.warning("No tagged questions found for your selection. The quiz will run in classic, unfiltered mode.")
+    
+        # Make sure pool is filled from the filtered subset
+        ensure_quiz_data_loaded()
+        ensure_active_pool()
+    
+        st.session_state.screen = "quiz"
+        st.rerun()
 
     if st.button("Start Quiz ▶", type="primary"):
         st.session_state.screen = "quiz"
@@ -834,6 +972,15 @@ def quiz_screen():
         if st.button("Back to start"):
             st.session_state.screen = "start"
             st.rerun()
+        with st.expander("Quick-Check Mode"):
+            if st.session_state.get("qc_filter_questions"):
+                st.caption("Quick-check filter is active (serving a selected subset).")
+                if st.button("❎ Clear quick-check filter (return to classic)"):
+                    st.session_state.qc_filter_questions = None
+                    ensure_active_pool()
+                    st.experimental_rerun()
+            else:
+                st.caption("Classic mode (no quick-check filter).")
         return
 
     # Progress header
