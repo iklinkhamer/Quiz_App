@@ -314,24 +314,31 @@ def normalize_question_fields(q: dict):
 def ensure_active_pool():
     """
     Promote unseen questions into 'active' until we have ACTIVE_POOL_SIZE active items,
-    excluding questions permanently deferred (they'll still reappear when due).
+    respecting the optional quick-check filter.
     """
     if not st.session_state.quiz_data:
         return
+
     # normalize (in case of older saves)
     for q in st.session_state.quiz_data:
         normalize_question_fields(q)
 
-    active = [q for q in st.session_state.quiz_data if q["status"] == "active"]
+    # Only allow items permitted by the quick-check filter (if set)
+    def allowed(q):
+        flt = st.session_state.get("qc_filter_questions")
+        return (not flt) or (str(q.get("question","")) in flt)
+
+    active = [q for q in st.session_state.quiz_data if q.get("status") == "active" and allowed(q)]
     need = max(0, ACTIVE_POOL_SIZE - len(active))
     if need <= 0:
         return
 
-    # FIFO: promote earliest unseen items first
-    unseen = [q for q in st.session_state.quiz_data if q["status"] == "unseen"]
-    # Only promote questions that the filter allows (if set)
-    if st.session_state.get("qc_filter_questions"):
-        unseen = [q for q in unseen if str(q.get("question","")) in st.session_state.qc_filter_questions]
+    # Promote earliest unseen items first
+    unseen = [q for q in st.session_state.quiz_data if q.get("status") == "unseen" and allowed(q)]
+    for q in unseen[:need]:
+        q["status"] = "active"
+        q["next_time"] = datetime.now().isoformat()
+
 
 
 def graduate_question(q: dict):
@@ -357,6 +364,13 @@ def active_or_deferred_due_indexes():
             except Exception:
                 due.append(i)
     return due
+
+def active_or_deferred_due_count():
+    now = datetime.now()
+    data = st.session_state.quiz_data or []
+    return sum(1 for q in data
+               if q.get("status") in ("active", "deferred")
+               and datetime.fromisoformat(q.get("next_time", now.isoformat())) <= now)
 
 
 def pick_next_question_idx_rotation():
@@ -772,7 +786,7 @@ def start_screen():
     ensure_quiz_data_loaded()
 
     # Info about due items for this set (for this profile if saving)
-    currently_due = len(due_indexes()) if st.session_state.quiz_data else 0
+    currently_due = active_or_deferred_due_count() if st.session_state.quiz_data else 0
     st.info(
         f"Profile: **{st.session_state.selected_profile}**  •  "
         f"Due in this set: **{currently_due}**"
