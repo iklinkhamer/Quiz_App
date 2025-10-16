@@ -54,6 +54,9 @@ GRADUATE_STREAK = 3            # correct-in-a-row needed to graduate a question
 BASE_INTERVAL_MIN = 1          # minutes after a wrong answer (short retry)
 INTERVAL_GROWTH_FACTOR = 2.0   # doubling on each correct
 
+# --- Micro-notes throttle (NEW) ---
+DEFAULT_INFO_REPEAT_MIN = 10   # minimum minutes before showing the same concept again in-session
+
 
 def safe_name(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", s).strip("_").lower()
@@ -146,7 +149,7 @@ def init_state():
     settings = load_settings()
 
     defaults = {
-        "screen": "start",              # "start" | "reading" | "quiz" | "summary"
+        "screen": "start",              # "start" | "reading" | "info" | "quiz" | "summary"
         "num_questions": settings.get("last_num_questions", 20),
         "questions_answered": 0,
         "correct_count": 0,
@@ -172,6 +175,11 @@ def init_state():
         "pre_read_mode": settings.get("pre_read_mode", PRE_READ_NONE),
         "reading_payload": None,        # loaded reading JSON dict
         "reading_stem": None,           # e.g. "ch01_Organisation_of_the_Body"
+        # NEW: interspersed info state
+        "pending_info_for_idx": None,   # which question index to show after info
+        "shown_info_keys": [],          # concepts shown this session
+        "last_info_key": None,          # last concept shown (for change detection)
+        "last_info_shown_at": {},       # {info_key: iso_str} throttle per concept
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -205,6 +213,7 @@ def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
         col_try("optionD", "answerD", "AnswerD", "D"),
     ]
     ans_col = col_try("answer", "correct", "Correct", "correct answer", "Correct Answer")
+    info_col = col_try("info_key", "topic", "concept")  # NEW: optional per-question concept key
 
     if not q_col or not ans_col or any(c is None for c in a_cols):
         raise ValueError(
@@ -231,6 +240,7 @@ def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
                 letter = "A"
 
         correct_idx = LETTERS.index(letter) if letter in LETTERS else 0
+        info_key = str(row[info_col]).strip() if info_col and pd.notna(row[info_col]) else None
 
         questions_list.append({
             "question": row[q_col],
@@ -241,7 +251,8 @@ def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
             "next_time": now_iso,
             "status": "unseen",          # unseen | active | deferred
             "streak": 0,                 # consecutive correct answers
-            "seen_count": 0              # total times shown (nice for debugging)
+            "seen_count": 0,             # total times shown (nice for debugging)
+            "info_key": info_key,        # NEW
         })
     return questions_list
 
@@ -253,6 +264,7 @@ def normalize_question_fields(q: dict):
     q.setdefault("seen_count", 0)
     q.setdefault("interval", 1)
     q.setdefault("next_time", datetime.now().isoformat())
+    q.setdefault("info_key", None)
     return q
 
 def ensure_active_pool():
@@ -363,7 +375,6 @@ def find_reading_json_for_csv(csv_path: str) -> str | None:
     Look for a reading file near the CSV with the same stem:
       <dir>/<stem>.reading.json
       <dir>/<stem>.json
-    Also supports a nested layout:
       <dir>/<stem>/reading.json
     """
     p = Path(csv_path)
@@ -383,7 +394,7 @@ def find_reading_json_for_csv(csv_path: str) -> str | None:
 def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | None]:
     """
     Return (payload, mode_support, stem)
-    'payload' has keys: title, reading, summary_bullets, estimated_read_time_sec.
+    'payload' has keys: title, reading, summary_bullets, estimated_read_time_sec, micro_notes.
     'mode_support' is one of: "both", "summary_only" (if reading missing), or None if not found.
     """
     stem = extract_chapter_stem_from_csv(csv_path)
@@ -404,6 +415,9 @@ def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | 
             "estimated_read_time_sec": int(data.get("estimated_read_time_sec") or 60),
             "source_refs": data.get("source_refs", []),
         }
+        # NEW: micro notes
+        payload["micro_notes"] = data.get("micro_notes", {})  # {info_key: {title, markdown, image?, min_repeat_minutes?}}
+
         if reading and summary_bullets:
             support = "both"
         elif summary_bullets:
@@ -458,6 +472,9 @@ def load_progress(merge=False):
                     s = saved_map[q["question"]]
                     q["interval"] = s.get("interval", q["interval"])
                     q["next_time"] = s.get("next_time", q["next_time"])
+                    # keep current info_key from CSV; if missing there, inherit from saved
+                    if not q.get("info_key"):
+                        q["info_key"] = s.get("info_key")
         else:
             st.session_state.quiz_data = saved
     except FileNotFoundError:
@@ -579,6 +596,57 @@ def show_question(idx):
             st.rerun()
 
 
+# ---------- Interspersed Info Screen (NEW) ----------
+def info_screen():
+    idx = st.session_state.pending_info_for_idx
+    if idx is None:
+        st.session_state.screen = "quiz"
+        st.rerun()
+        return
+
+    if not st.session_state.quiz_data or idx >= len(st.session_state.quiz_data):
+        st.session_state.screen = "quiz"
+        st.rerun()
+        return
+
+    q = st.session_state.quiz_data[idx]
+    info_key = q.get("info_key")
+    payload = st.session_state.reading_payload or {}
+    notes_all = payload.get("micro_notes") or {}
+    notes = notes_all.get(info_key, {}) if info_key else {}
+
+    # Fallbacks
+    display_title = notes.get("title") or (f"Heads-up: {info_key.replace('_',' ').title()}" if info_key else "Heads-up")
+    body_md = notes.get("markdown") or "_No notes available for this concept._"
+    img = notes.get("image")
+    min_repeat = int(notes.get("min_repeat_minutes") or DEFAULT_INFO_REPEAT_MIN)
+
+    st.header(display_title)
+    if img:
+        try:
+            st.image(img, use_column_width=True)
+        except Exception:
+            st.caption("*(Image could not be loaded)*")
+    st.markdown(body_md)
+
+    c1, c2 = st.columns(2)
+    if c1.button("Start question ▶", type="primary"):
+        # record that we've shown this concept
+        now_iso = datetime.now().isoformat()
+        if info_key:
+            if info_key not in st.session_state.shown_info_keys:
+                st.session_state.shown_info_keys.append(info_key)
+            st.session_state.last_info_key = info_key
+            st.session_state.last_info_shown_at[info_key] = now_iso
+
+        st.session_state.screen = "quiz"
+        st.session_state.pending_info_for_idx = None
+        st.rerun()
+    if c2.button("Skip info and continue"):
+        st.session_state.screen = "quiz"
+        st.session_state.pending_info_for_idx = None
+        st.rerun()
+
 # ---------- Screens ----------
 def start_screen():
     # Cute header (start screen only)
@@ -697,6 +765,10 @@ def start_screen():
         st.session_state.awaiting_continue = False
         st.session_state.last_was_correct = None
         st.session_state.last_feedback = ""
+        st.session_state.pending_info_for_idx = None
+        st.session_state.shown_info_keys = []
+        st.session_state.last_info_key = None
+        st.session_state.last_info_shown_at = {}
 
         # NEW: If reading is requested and available, go to reading screen; else quiz
         payload, support, stem = load_reading_payload(st.session_state.selected_csv)
@@ -775,10 +847,7 @@ def quiz_screen():
 
     # Keep the same question until Continue after Submit
     if st.session_state.current_question_idx is None:
-        # OLD:
-        # idx = pick_next_question_idx()
-        
-        # NEW:
+        # NEW rotation:
         idx = pick_next_question_idx_rotation()
         if idx is None:
             st.success("🎉 All due questions are up to date right now.")
@@ -794,7 +863,41 @@ def quiz_screen():
         st.session_state.current_question_idx = idx
 
     idx = st.session_state.current_question_idx
-    st.subheader(st.session_state.quiz_data[idx]["question"])
+    q = st.session_state.quiz_data[idx]
+    info_key = q.get("info_key")
+
+    # --- Decide whether to show a micro-info screen (NEW) ---
+    should_show_info = False
+    payload = st.session_state.reading_payload or {}
+    notes = (payload.get("micro_notes") or {})
+    has_note = info_key and (info_key in notes)
+
+    if has_note:
+        not_shown_before = info_key not in st.session_state.shown_info_keys
+        concept_changed = (st.session_state.last_info_key != info_key)
+
+        # Throttle: don't repeat too soon
+        last_shown_iso = st.session_state.last_info_shown_at.get(info_key)
+        too_recent = False
+        min_repeat = int(notes[info_key].get("min_repeat_minutes") or DEFAULT_INFO_REPEAT_MIN)
+        if last_shown_iso:
+            try:
+                last_dt = datetime.fromisoformat(last_shown_iso)
+                too_recent = (datetime.now() - last_dt) < timedelta(minutes=min_repeat)
+            except Exception:
+                too_recent = False
+
+        # Rule: show when first seen OR concept changes, and not too recently
+        should_show_info = (not_shown_before or concept_changed) and (not too_recent)
+
+    if should_show_info:
+        st.session_state.pending_info_for_idx = idx
+        st.session_state.screen = "info"
+        st.rerun()
+        return
+
+    # --- Regular question render ---
+    st.subheader(q["question"])
     show_question(idx)
     
     # allow returning to start during quiz
@@ -840,8 +943,11 @@ if screen == "start":
     start_screen()
 elif screen == "reading":  # NEW
     reading_screen()
+elif screen == "info":     # NEW
+    info_screen()
 elif screen == "quiz":
     quiz_screen()
 else:
     summary_screen()
+
 
