@@ -1,2 +1,0 @@
-question,optionA,optionB,optionC,optionD,answer,,,,,,,,,,,,,topic_chapter,topic_confidence,all_topics,matched_keywords,topic_section_id,topic_section_title,topic_section_confidence,all_sections,matched_section_keywords
-Which gland or organ releases erythropoietin?,The kidneys,The adrenal glands,The anterior pituitary,The pancreas,A,,,,,,,,,,,,,Chapter 1 - Chemicals,0.377,Chapter 1 - Chemicals; Chapter 16 - Endocrine System; Chapter 10 - Lymphatic System,or,chapter_10::10_x_lymph_nodes_organs,10.x Lymph Nodes & Organs,0.660,chapter_10::10_x_lymph_nodes_organs,organ
