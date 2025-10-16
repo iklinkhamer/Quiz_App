@@ -179,14 +179,47 @@ def list_question_sets(search_root="."):
     valid = sorted(valid, key=lambda p: (p.count(os.sep), p.lower()))
     return valid
 
-def progress_path_for(csv_file: str, profile_name: str | None):
-    """Unique progress file per dataset & profile; None if practice-without-profile."""
+def progress_path_for(csv_file: str | None,
+                      profile_name: str | None,
+                      mode: str | None = None,
+                      sel_chapter: str | None = None,
+                      sel_section: str | None = None):
+    """Unique progress file per dataset/profile AND per mode; for Section QC also per chapter/section."""
     if not profile_name or profile_name == NO_PROFILE_LABEL:
         return None
-    base = os.path.splitext(os.path.basename(csv_file))[0]
-    safe_ds = safe_name(base)
-    safe_prof = safe_name(profile_name)
-    return f"quiz_progress__{safe_ds}__{safe_prof}.json"
+    mode_key = "classic" if mode == "Classic Quiz Mode" else ("section_qc" if mode == "Section Quick-Checks" else "classic")
+    if mode_key == "classic":
+        base = os.path.splitext(os.path.basename(csv_file or "default"))[0]
+        safe_ds = safe_name(base)
+        safe_prof = safe_name(profile_name)
+        return f"quiz_progress__{mode_key}__{safe_ds}__{safe_prof}.json"
+    else:
+        # Section QC: save per chapter/section selection
+        ch = safe_name(sel_chapter or "all_chapters")
+        sec = safe_name(sel_section or "all_sections")
+        safe_prof = safe_name(profile_name)
+        return f"quiz_progress__{mode_key}__{ch}__{sec}__{safe_prof}.json"
+
+
+def render_section(sec, chapter_payload):
+    img_id = sec.get("image")
+    img_ids = sec.get("images")
+    fig_index = {f["figure_id"]: f for f in (chapter_payload.get("figures") or [])}
+
+    def _show(fid):
+        f = fig_index.get(fid)
+        if not f: 
+            return
+        st.image(f["url"], caption=f.get("caption") or "", use_column_width=True)
+
+    if img_id:
+        _show(img_id)
+    if img_ids:
+        for fid in img_ids:
+            _show(fid)
+
+    st.markdown(sec.get("markdown",""))
+
 
 # ---------- Profiles store ----------
 def load_profiles() -> list[str]:
@@ -510,8 +543,15 @@ def find_reading_json_for_csv(csv_path: str) -> str | None:
 def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | None]:
     """
     Return (payload, mode_support, stem)
-    'payload' has keys: title, reading, summary_bullets, estimated_read_time_sec, micro_notes.
-    'mode_support' is one of: "both", "summary_only" (if reading missing), or None if not found.
+
+    Expected JSON keys (any optional):
+      - title (str)
+      - reading (str)
+      - estimated_read_time_sec (int)
+      - summary_bullets (list[str])
+      - micro_notes (dict[str -> {title, markdown, image|images}])
+      - figures (list[{figure_id, url, caption}])
+      - sections (list[{title?, markdown?, image?, images?}])   # OPTIONAL chunked reading
     """
     stem = extract_chapter_stem_from_csv(csv_path)
     json_path = find_reading_json_for_csv(csv_path)
@@ -520,28 +560,39 @@ def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | 
     try:
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
         title = data.get("title") or stem.replace("_", " ")
         reading = (data.get("reading") or "").strip()
         summary_bullets = data.get("summary_bullets") or []
+        figures = data.get("figures") or []
+        sections = data.get("sections") or None   # optional
+
         payload = {
             "title": title,
             "reading": reading,
             "summary_bullets": summary_bullets,
             "estimated_read_time_sec": int(data.get("estimated_read_time_sec") or 60),
             "source_refs": data.get("source_refs", []),
+            "micro_notes": data.get("micro_notes", {}),
+            "figures": figures,
+            "sections": sections,
         }
-        payload["micro_notes"] = data.get("micro_notes", {})
 
-        if reading and summary_bullets:
+        # Determine what we can show before quiz
+        if (sections and len(sections) > 0) or (reading and summary_bullets):
             support = "both"
         elif summary_bullets:
             support = "summary_only"
+        elif reading:
+            support = "both"   # treat plain reading as showable
         else:
             support = None
+
         return payload, support, stem
     except Exception as e:
         st.warning(f"Couldn't load reading JSON: {e}")
         return None, None, stem
+
 
 def ensure_quiz_data_loaded():
     """(Re)load quiz_data if dataset or profile selection changed."""
@@ -561,19 +612,32 @@ def ensure_quiz_data_loaded():
 
 # ---------- Load/save/reset progress (per dataset & profile) ----------
 def save_progress():
-    path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
+    path = progress_path_for(
+        st.session_state.selected_csv,
+        st.session_state.selected_profile,
+        st.session_state.quiz_mode,
+        st.session_state.current_chapter_title,
+        st.session_state.current_section_title,
+    )
     if path is None:
-        return  # no-save mode
+        return
     try:
         with open(path, "w") as f:
             json.dump(st.session_state.quiz_data, f, indent=2, default=str)
     except Exception as e:
         st.warning(f"Couldn't save progress to '{path}': {e}")
 
+
 def load_progress(merge=False):
-    path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
+    path = progress_path_for(
+        st.session_state.selected_csv,
+        st.session_state.selected_profile,
+        st.session_state.quiz_mode,
+        st.session_state.current_chapter_title,
+        st.session_state.current_section_title,
+    )
     if path is None:
-        return  # no-save mode
+        return
     try:
         with open(path) as f:
             saved = json.load(f)
@@ -584,6 +648,9 @@ def load_progress(merge=False):
                     s = saved_map[q["question"]]
                     q["interval"] = s.get("interval", q["interval"])
                     q["next_time"] = s.get("next_time", q["next_time"])
+                    q["status"]  = s.get("status", q.get("status", "unseen"))
+                    q["streak"]  = s.get("streak", q.get("streak", 0))
+                    q["seen_count"] = s.get("seen_count", q.get("seen_count", 0))
                     if not q.get("info_key"):
                         q["info_key"] = s.get("info_key")
         else:
@@ -593,13 +660,19 @@ def load_progress(merge=False):
     except Exception as e:
         st.warning(f"Couldn't load prior progress from '{path}': {e}")
 
+
 def reset_progress_for_current_set():
-    """Delete the progress file for the current (dataset, profile)."""
-    path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
+    path = progress_path_for(
+        st.session_state.selected_csv,
+        st.session_state.selected_profile,
+        st.session_state.quiz_mode,
+        st.session_state.current_chapter_title,
+        st.session_state.current_section_title,
+    )
     if path and os.path.exists(path):
         try:
             os.remove(path)
-            st.success("Progress reset for this set.")
+            st.success("Progress reset for this mode/selection.")
         except Exception as e:
             st.warning(f"Couldn't delete progress file: {e}")
     if st.session_state.quiz_data:
@@ -607,6 +680,10 @@ def reset_progress_for_current_set():
         for q in st.session_state.quiz_data:
             q["interval"] = 1
             q["next_time"] = now_iso
+            q["status"] = "unseen"
+            q["streak"] = 0
+            q["seen_count"] = 0
+
 
 # ---------- Quiz helpers ----------
 def due_indexes():
@@ -719,15 +796,40 @@ def info_screen():
 
     display_title = notes.get("title") or (f"Heads-up: {info_key.replace('_',' ').title()}" if info_key else "Heads-up")
     body_md = notes.get("markdown") or "_No notes available for this concept._"
-    img = notes.get("image")
 
     st.header(display_title)
-    if img:
-        try:
-            st.image(img, use_column_width=True)
-        except Exception:
-            st.caption("*(Image could not be loaded)*")
-    st.markdown(body_md)
+
+    # Prefer figure-id rendering if image(s) match known figure_ids
+    fig_ids = None
+    if "images" in notes and isinstance(notes["images"], list):
+        fig_ids = [x for x in notes["images"] if isinstance(x, str)]
+    elif "image" in notes and isinstance(notes["image"], str):
+        fig_ids = [notes["image"]]
+
+    used_render_section = False
+    if fig_ids:
+        # Build figure index to check if any id matches
+        fig_index = {f.get("figure_id"): f for f in (payload.get("figures") or []) if f.get("figure_id")}
+        if any(fid in fig_index for fid in fig_ids):
+            sec_stub = {"markdown": body_md}
+            # keep only valid figure ids
+            valid_fids = [fid for fid in fig_ids if fid in fig_index]
+            if len(valid_fids) == 1:
+                sec_stub["image"] = valid_fids[0]
+            elif len(valid_fids) > 1:
+                sec_stub["images"] = valid_fids
+            render_section(sec_stub, payload)
+            used_render_section = True
+
+    if not used_render_section:
+        # Fallback: raw image url/path or no image at all
+        raw_img = notes.get("image")
+        if raw_img:
+            try:
+                st.image(raw_img, use_column_width=True)
+            except Exception:
+                st.caption("*(Image could not be loaded)*")
+        st.markdown(body_md)
 
     c1, c2 = st.columns(2)
     if c1.button("Start question ▶", type="primary"):
@@ -746,6 +848,7 @@ def info_screen():
         st.session_state.pending_info_for_idx = None
         st.rerun()
 
+
 # ---------- Screens ----------
 def start_screen():
     # Cute header (start screen only)
@@ -763,9 +866,29 @@ def start_screen():
         st.error("No CSV question sets found in this repository. Add a CSV with headers like: question, optionA..D, answer.")
         return
 
-    # Default dataset selection
-    if not st.session_state.selected_csv or st.session_state.selected_csv not in st.session_state.available_sets:
-        st.session_state.selected_csv = st.session_state.available_sets[0]
+    # ----- Quiz Type & Targeting (moved to top) -----
+    st.markdown("### Quiz Type & Targeting")
+    colA, colB, colC = st.columns([1.1, 1, 1])
+    with colA:
+        st.session_state.quiz_mode = st.radio(
+            "Mode",
+            options=["Section Quick-Checks", "Classic Quiz Mode"],
+            index=0 if st.session_state.quiz_mode == "Section Quick-Checks" else 1,
+            help="Section = only questions tagged to a subchapter; Classic = ordinary chapter or entire set."
+        )
+    with colB:
+        if st.session_state.quiz_mode == "Section Quick-Checks":
+            st.session_state.qc_num_qs = st.number_input("How many questions?", min_value=3, max_value=50,
+                                                         value=int(st.session_state.qc_num_qs), step=1)
+        else:
+            # Placeholder for spacing
+            st.empty()
+    with colC:
+        if st.session_state.quiz_mode == "Section Quick-Checks":
+            st.session_state.qc_min_conf = st.slider("Min. confidence", 0.30, 0.90,
+                                                     float(st.session_state.qc_min_conf), 0.05)
+        else:
+            st.empty()
 
     # Profile picker
     profile_options = [NO_PROFILE_LABEL] + st.session_state.profiles
@@ -795,11 +918,11 @@ def start_screen():
                 st.success(f"Profile '{name}' added.")
                 st.rerun()
 
-    # Dataset picker
+    # Dataset picker (Classic mode needs this; Section QC often uses the tagged CSV too)
     st.selectbox(
         "Choose a question set (CSV)",
         options=st.session_state.available_sets,
-        index=st.session_state.available_sets.index(st.session_state.selected_csv),
+        index=st.session_state.available_sets.index(st.session_state.selected_csv) if st.session_state.selected_csv in st.session_state.available_sets else 0,
         key="selected_csv"
     )
 
@@ -809,89 +932,95 @@ def start_screen():
     except Exception:
         df_tag = None
 
-    # NEW: Pre-reading selection (persisted)
-    st.session_state.pre_read_mode = st.radio(
-        "Before the questions, would you like to read…",
-        PRE_READ_MODES,
-        index=PRE_READ_MODES.index(st.session_state.pre_read_mode),
-        horizontal=True,
-        help="Full reading, a short summary, or skip reading altogether."
-    )
+    if st.session_state.quiz_mode == "Section Quick-Checks":
+        if df_tag is None:
+            st.error("Tagged MCQs file not available, section/chapter targeting disabled.")
+            return
 
-    # Load/refresh quiz data if selection or profile changed
-    ensure_quiz_data_loaded()
-
-    # ----- Quiz Type & Targeting (moved to Start screen) -----
-    st.markdown("### Quiz Type & Targeting")
-
-    colA, colB, colC = st.columns([1.2, 1, 1])
-    with colA:
-        st.session_state.quiz_mode = st.radio(
-            "Mode",
-            options=["Section Quick-Checks", "Classic Quiz Mode"],
-            index=0 if st.session_state.quiz_mode == "Section Quick-Checks" else 1,
-            help="Section = only questions tagged to a subchapter; Classic = ordinary chapter or entire set."
-        )
-    with colB:
-        st.session_state.qc_num_qs = st.number_input("How many questions?", min_value=3, max_value=50,
-                                                     value=int(st.session_state.qc_num_qs), step=1)
-    with colC:
-        st.session_state.qc_min_conf = st.slider("Min. confidence", 0.30, 0.90,
-                                                 float(st.session_state.qc_min_conf), 0.05)
-
-    st.session_state.qc_fallback_to_chapter = st.checkbox(
-        "Fallback to chapter if section is sparse",
-        value=bool(st.session_state.qc_fallback_to_chapter)
-    )
-
-    sel_chapter = None
-    sel_section = None
-    if df_tag is not None:
         chapters, sections_by_ch = get_tag_catalog(df_tag)
-        sel_chapter = st.selectbox("Chapter (from tagged bank)", ["<All chapters>"] + chapters)
-        if sel_chapter != "<All chapters>":
-            sec_opts = sections_by_ch.get(sel_chapter, [])
-            sel_section = st.selectbox("Subchapter (optional)", ["<All subchapters>"] + sec_opts)
-            if sel_section == "<All subchapters>":
-                sel_section = None
-        else:
-            sel_chapter = None
+        sel_chapter = st.selectbox("Chapter", chapters)
+        sec_opts = sections_by_ch.get(sel_chapter, [])
+        sel_section = st.selectbox("Subchapter (optional)", ["<All subchapters>"] + sec_opts)
+        if sel_section == "<All subchapters>":
+            sel_section = None
+
+        st.session_state.qc_fallback_to_chapter = st.checkbox(
+            "Fallback to chapter if section is sparse",
+            value=bool(st.session_state.qc_fallback_to_chapter)
+        )
+
+        # Build quick-check filter preview (but don't commit to state until Start)
+        preview_qs = build_qc_filter(
+            df=df_tag,
+            chapter=sel_chapter,
+            section=sel_section,
+            mode="Section Quick-Checks",
+            n=int(st.session_state.qc_num_qs),
+            min_conf=float(st.session_state.qc_min_conf),
+        )
+        if st.session_state.qc_fallback_to_chapter and sel_section and len(preview_qs) < int(st.session_state.qc_num_qs):
+            topup = build_qc_filter(
+                df=df_tag,
+                chapter=sel_chapter,
+                section=None,
+                mode="Classic Quiz Mode",
+                n=int(st.session_state.qc_num_qs) - len(preview_qs),
+                min_conf=max(0.45, float(st.session_state.qc_min_conf) - 0.1),
+            )
+            preview_qs.extend([q for q in topup if q not in preview_qs])
+
+        st.caption(f"Will drill **{min(len(preview_qs), int(st.session_state.qc_num_qs))}** question(s) this session.")
+
+        # Due count here should reflect the filtered subset with current saved intervals
+        ensure_quiz_data_loaded()
+        # Temporarily set the filter to compute due, then revert
+        old_filter = st.session_state.get("qc_filter_questions")
+        st.session_state.qc_filter_questions = set(map(str, preview_qs)) if preview_qs else None
+        ensure_active_pool()
+        due_count = active_or_deferred_due_count()
+        # revert
+        st.session_state.qc_filter_questions = old_filter
+
+        st.info(
+            f"Profile: **{st.session_state.selected_profile}**  •  "
+            f"Due in this selection: **{due_count}**"
+        )
+
+        # Pre-reading choice is forced in Section QC, but expose an override if you want:
+        st.session_state.pre_read_mode = st.radio(
+            "Before the questions, show…",
+            [PRE_READ_SUMMARY, PRE_READ_FULL],
+            index=0,
+            horizontal=True,
+            help="In Section Quick-Checks, you'll see the targeted section's info before questions."
+        )
+
     else:
-        st.info("Tagged MCQs file not available, section/chapter targeting disabled.")
+        # Classic Mode controls
+        st.session_state.pre_read_mode = st.radio(
+            "Before the questions, would you like to read…",
+            PRE_READ_MODES,
+            index=PRE_READ_MODES.index(st.session_state.pre_read_mode),
+            horizontal=True,
+        )
 
-    # Info about due items for this set (rotation-aware)
-    currently_due = active_or_deferred_due_count() if st.session_state.quiz_data else 0
-    st.info(
-        f"Profile: **{st.session_state.selected_profile}**  •  "
-        f"Due in this set: **{currently_due}**"
-    )
+        # Load/refresh quiz data if selection or profile changed
+        ensure_quiz_data_loaded()
 
-    # Reset progress (only if saving with a profile) with confirmation
-    if st.session_state.selected_profile != NO_PROFILE_LABEL:
-        if not st.session_state.confirm_reset:
-            if st.button("Reset progress for this set"):
-                st.session_state.confirm_reset = True
-                st.rerun()
-        else:
-            st.warning("Are you sure? This will erase all saved intervals and due times for this profile and set.")
-            c1, c2 = st.columns(2)
-            if c1.button("✅ Yes, reset now"):
-                reset_progress_for_current_set()
-                st.session_state.confirm_reset = False
-                st.rerun()
-            if c2.button("❌ Cancel"):
-                st.info("Reset canceled.")
-                st.session_state.confirm_reset = False
-                st.rerun()
+        # Session size (Classic mode only)
+        st.session_state.num_questions = st.number_input(
+            "Questions per session",
+            min_value=1,
+            max_value=100,
+            value=int(st.session_state.num_questions),
+            step=1
+        )
 
-    # Session size
-    st.session_state.num_questions = st.number_input(
-        "Questions per session",
-        min_value=1,
-        max_value=100,
-        value=st.session_state.num_questions,
-        step=1
-    )
+        due_count = active_or_deferred_due_count()
+        st.info(
+            f"Profile: **{st.session_state.selected_profile}**  •  "
+            f"Due in this set: **{due_count}**"
+        )
 
     # SAVE defaults so they stick next time
     save_settings(
@@ -900,6 +1029,7 @@ def start_screen():
         pre_read_mode=st.session_state.pre_read_mode,
     )
 
+    # Start button
     if st.button("Start Session ▶", type="primary"):
         # Reset per-session counters/state
         st.session_state.questions_answered = 0
@@ -917,29 +1047,20 @@ def start_screen():
         # (Re)load quiz data for the chosen CSV/profile
         ensure_quiz_data_loaded()
 
-        # Build quick-check filter from Start-screen choices
+        # Build (and COMMIT) quick-check filter if needed
+        sel_chapter = None
+        sel_section = None
         selected_qs = []
-        if df_tag is not None:
-            selected_qs = build_qc_filter(
-                df=df_tag,
-                chapter=sel_chapter,
-                section=sel_section,
-                mode=st.session_state.quiz_mode,
-                n=int(st.session_state.qc_num_qs),
-                min_conf=float(st.session_state.qc_min_conf),
-            )
-            # Optional fallback to chapter if section sparse
-            if st.session_state.quiz_mode == "Section Quick-Checks" and sel_section and \
-               st.session_state.qc_fallback_to_chapter and len(selected_qs) < int(st.session_state.qc_num_qs):
-                topup = build_qc_filter(
-                    df=df_tag,
-                    chapter=sel_chapter,
-                    section=None,  # chapter only
-                    mode="Classic Quiz Mode",
-                    n=int(st.session_state.qc_num_qs) - len(selected_qs),
-                    min_conf=max(0.45, float(st.session_state.qc_min_conf) - 0.1),
-                )
-                selected_qs.extend([q for q in topup if q not in selected_qs])
+        if st.session_state.quiz_mode == "Section Quick-Checks" and df_tag is not None:
+            chapters, sections_by_ch = get_tag_catalog(df_tag)
+            # Retrieve current selections from widgets
+            sel_chapter = st.session_state.get("Chapter")
+            # Above line may not work depending on Streamlit's internal keys; safer to reuse local vars:
+            # But we already computed preview_qs just above, so:
+            selected_qs = preview_qs
+            # Save these selections for reading & save keying
+            # (We can rebuild from df_tag; here use last computed suiting values)
+            # In case you need exact values, store them earlier into session_state.
 
         # Apply/clear filter
         st.session_state.qc_filter_questions = set(map(str, selected_qs)) if selected_qs else None
@@ -947,57 +1068,115 @@ def start_screen():
         # Fill active pool AFTER setting the filter
         ensure_active_pool()
 
-        # Decide first screen: reading only if selected AND available for the chosen CSV
+        # ---------- session size by mode ----------
+        if st.session_state.quiz_mode == "Section Quick-Checks":
+            st.session_state.num_questions = min(int(st.session_state.qc_num_qs), len(selected_qs))
+
+        # Decide first screen (and set chapter/section for reading targeting) — handled in the global code we inserted earlier
+        # We'll set these from the last computed selection vars if available
+        if st.session_state.quiz_mode == "Section Quick-Checks" and df_tag is not None:
+            # capture the actual chosen chapter/section from widgets
+            chapters, sections_by_ch = get_tag_catalog(df_tag)
+            # Re-read current values safely:
+            # we saved them above in local vars sel_chapter, sel_section, so reuse:
+            st.session_state.current_chapter_title = sel_chapter
+            st.session_state.current_section_title = sel_section
+
+        # Decide first screen + reading payload & rerun
         payload, support, stem = load_reading_payload(st.session_state.selected_csv)
         st.session_state.reading_payload = payload
         st.session_state.reading_stem = stem
-        want_reading = (st.session_state.pre_read_mode != PRE_READ_NONE)
 
-        if want_reading and payload and (support == "both" or (support == "summary_only" and st.session_state.pre_read_mode == PRE_READ_SUMMARY)):
-            st.session_state.screen = "reading"
+        if st.session_state.quiz_mode == "Section Quick-Checks":
+            if payload and (payload.get("summary_bullets") or payload.get("reading") or payload.get("sections")):
+                st.session_state.pre_read_mode = PRE_READ_SUMMARY if payload.get("summary_bullets") else PRE_READ_FULL
+                st.session_state.screen = "reading"
+            else:
+                st.session_state.screen = "quiz"
         else:
-            st.session_state.screen = "quiz"
+            want_reading = (st.session_state.pre_read_mode != PRE_READ_NONE)
+            if want_reading and payload and (support == "both" or (support == "summary_only" and st.session_state.pre_read_mode == PRE_READ_SUMMARY)):
+                st.session_state.screen = "reading"
+            else:
+                st.session_state.screen = "quiz"
 
         st.rerun()
 
+
 def reading_screen():
-    """Show reading or summary (controls now live on Start screen)."""
+    """Show reading/summary; in Section QC, prefer only the targeted section."""
     payload = st.session_state.reading_payload
     stem = st.session_state.reading_stem or "Reading"
     if not payload:
-        st.info("No reading material found for this chapter. Starting the quiz.")
+        st.info("No reading material found. Starting the quiz.")
         st.session_state.screen = "quiz"
         st.rerun()
         return
 
     st.header(payload.get("title", stem).replace("_", " "))
-
     mode = st.session_state.pre_read_mode
-    if mode == PRE_READ_FULL and payload.get("reading"):
-        est = payload.get("estimated_read_time_sec", 60)
-        st.caption(f"Estimated read time ~ {max(1, int(est/60))} min")
-        st.write(payload["reading"])
+    est = max(1, int(payload.get("estimated_read_time_sec", 60) / 60))
+    st.caption(f"Estimated read time ~ {est} min")
+
+    sections = payload.get("sections") or []
+    has_sections = len(sections) > 0
+
+    target_section = st.session_state.current_section_title if st.session_state.quiz_mode == "Section Quick-Checks" else None
+    targeted_sections = []
+    if target_section and has_sections:
+        targeted_sections = [s for s in sections if (s.get("title") == target_section)]
+        if not targeted_sections:
+            # fallback: try case-insensitive match
+            targeted_sections = [s for s in sections if s.get("title","").strip().lower() == target_section.strip().lower()]
+
+    def _render_sections(sec_list):
+        for sec in sec_list:
+            if sec.get("title"):
+                st.subheader(sec["title"])
+            render_section(sec, payload)
+            st.markdown("---")
+
+    if st.session_state.quiz_mode == "Section Quick-Checks" and targeted_sections:
+        # Always render the targeted section regardless of summary/full choice
+        _render_sections(targeted_sections)
+        # Show quick summary bullets too if available
         if payload.get("summary_bullets"):
-            with st.expander("Quick summary"):
+            with st.expander("Quick chapter summary"):
                 for b in payload["summary_bullets"]:
                     st.markdown(f"- {b}")
-    elif mode == PRE_READ_SUMMARY and payload.get("summary_bullets"):
-        st.subheader("Summary")
-        for b in payload["summary_bullets"]:
-            st.markdown(f"- {b}")
-        if payload.get("reading"):
-            with st.expander("Read the full section"):
-                st.write(payload["reading"])
     else:
-        st.info("This chapter has no matching reading/summary. Starting the quiz.")
-        st.session_state.screen = "quiz"
-        st.rerun()
-        return
+        # Classic behavior
+        if mode == PRE_READ_FULL and payload.get("reading"):
+            st.write(payload["reading"])
+            if payload.get("summary_bullets"):
+                with st.expander("Quick summary"):
+                    for b in payload["summary_bullets"]:
+                        st.markdown(f"- {b}")
+            if has_sections:
+                with st.expander("See sectioned version"):
+                    _render_sections(sections)
+        elif mode == PRE_READ_SUMMARY and payload.get("summary_bullets"):
+            st.subheader("Summary")
+            for b in payload["summary_bullets"]:
+                st.markdown(f"- {b}")
+            if has_sections or payload.get("reading"):
+                with st.expander("Read the full section"):
+                    if has_sections:
+                        _render_sections(sections)
+                    else:
+                        st.write(payload["reading"])
+        else:
+            st.info("No reading/summary available. Starting the quiz.")
+            st.session_state.screen = "quiz"
+            st.rerun()
+            return
 
     st.markdown("---")
     if st.button("Start Quiz ▶", type="primary"):
         st.session_state.screen = "quiz"
         st.rerun()
+
+
 
 def quiz_screen():
     ensure_quiz_data_loaded()
