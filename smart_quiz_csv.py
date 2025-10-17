@@ -63,6 +63,13 @@ INTERVAL_GROWTH_FACTOR = 2.0
 
 LETTERS = ["A", "B", "C", "D"]
 
+# Exclude questions that lack chapter/section when filters are used
+EXCLUDE_UNTAGGED_WHEN_FILTERING = True
+
+# (Optional) If you want to exclude untagged ALWAYS (even with no filters), set this to True
+EXCLUDE_UNTAGGED_ALWAYS = False
+
+
 
 # ---------- Small helpers ----------
 def safe_name(s: str) -> str:
@@ -352,26 +359,46 @@ def _col_try(df: pd.DataFrame, *names):
 
 
 def _row_matches_filters(row, chapter_col, section_col, sel_chapter, sel_section) -> bool:
-    """Return True if this row should be included given user's selections."""
-    if not sel_chapter and not sel_section:
-        return True  # no filtering requested
+    """
+    Return True if this row should be included given user's selections.
+    Behavior:
+      • If chapter/section filters are in use, rows missing either chapter OR section are excluded.
+      • If no filters are in use, all rows are included (unless EXCLUDE_UNTAGGED_ALWAYS=True).
+    """
+    # Gather tags (as sets) if columns exist
+    chs = set(_split_multi(row.get(chapter_col, ""))) if chapter_col else set()
+    secs = set(_split_multi(row.get(section_col, ""))) if section_col else set()
 
-    # When only section is selected but no chapter (rare), include if section matches anywhere.
-    if sel_section and not sel_chapter and section_col:
-        secs = set(_split_multi(row.get(section_col, "")))
+    using_filters = bool(sel_chapter or sel_section)
+
+    # Exclude untagged if filters are in use (so incomplete rows don’t sneak in)
+    if using_filters and EXCLUDE_UNTAGGED_WHEN_FILTERING:
+        if not chs or not secs:
+            return False
+
+    # Optional: exclude untagged globally, even without filters
+    if not using_filters and EXCLUDE_UNTAGGED_ALWAYS:
+        if not chs or not secs:
+            return False
+
+    # No filters at all → include (subject to optional global exclusion above)
+    if not using_filters:
+        return True
+
+    # Only section selected (no chapter): include if section matches anywhere
+    if sel_section and not sel_chapter:
         return sel_section in secs
 
-    # When chapter selected (with or without section)
-    if sel_chapter and chapter_col:
-        chs = set(_split_multi(row.get(chapter_col, "")))
+    # Chapter selected (with or without section)
+    if sel_chapter:
         if sel_chapter not in chs:
             return False
-        if sel_section and section_col:
-            secs = set(_split_multi(row.get(section_col, "")))
-            return sel_section in secs if secs else False
+        if sel_section:
+            return sel_section in secs
         return True
 
     return False
+
 
 
 def build_questions_from_df(df: pd.DataFrame,
