@@ -1,0 +1,332 @@
+[
+{
+  {
+  "title": "Chapter 1: Organisation of the Body",
+  "reading": "Anatomy studies body structure and the names and positions of parts; physiology studies how those parts function. The body can be described using standard anatomical position and directional terms (superior/inferior, anterior/posterior, medial/lateral, proximal/distal). Planes of section—sagittal, coronal, and transverse—help describe slices through the body. The trunk contains large cavities: the dorsal cavity (cranial and spinal) and the ventral cavity (thoracic and abdominopelvic). Organs are grouped into systems (e.g., musculoskeletal, nervous, cardiovascular). Levels of organisation progress from chemical → cellular → tissue → organ → system → organism. Homeostasis describes how variables such as temperature or blood pressure are maintained within narrow limits by negative feedback.",
+  "summary_bullets": [
+    "Anatomy = structure; physiology = function.",
+    "Anatomical position standardises descriptions.",
+    "Directional terms and body planes give precise locations and sections.",
+    "Major cavities: dorsal (cranial, spinal) and ventral (thoracic, abdominopelvic).",
+    "Structural levels: chemical → cellular → tissue → organ → system → organism.",
+    "Homeostasis uses negative feedback to keep internal conditions stable."
+  ],
+  "estimated_read_time_sec": 90,
+  "source_refs": [
+    { "note": "Introductory A&P overview commonly covered in Chapter 1." }
+  ]
+}
+,
+{
+  "title": "Chapter 2 - Classification",
+  "reading": "-Objectives-\n• How to write scientific names correctly\n• Animals belong to the Animal kingdom; hierarchy includes phyla, classes, orders, families\n• Definition of a species\n• Phylum and class of common animals used in this course",
+  "estimated_read_time_sec": 420,
+  "micro_notes": {
+    "naming_and_classifying_animals": {
+      "title": "2.2 Naming and Classifying Animals (Heads-up)",
+      "markdown": "- ~1.5 million living species identified; classification organizes them by similarities/differences.\n- Veterinary focus: Animal Kingdom, but remember dependence on plants and impacts of fungi, bacteria, protists."
+    },
+    "naming_animals": {
+      "title": "2.3 Naming Animals (Heads-up)",
+      "markdown": "- Common names vary by language/region and can be ambiguous (e.g., “gopher”).\n- **Binomial (scientific) naming rules:** two parts; **Genus** capitalized, **species** lowercase; entire name italicized/underlined; first use full, later abbreviate genus (e.g., *Canis familiaris* → *C. familiaris*).",
+      "examples": [
+        "Rattus rattus",
+        "Homo sapiens",
+        "Felis domesticus",
+        "Canis familiaris"
+      ]
+    },
+    "classification_of_life": {
+      "title": "2.4 Classification of Living Organisms (Heads-up)",
+      "markdown": "- Classification reflects evolutionary relationships.\n- Once based on appearance; microscopy and DNA comparisons refined groupings.\n- A common framework splits life into **five kingdoms**.",
+      "five_kingdoms": [
+        "Bacteria",
+        "Protists",
+        "Fungi",
+        "Plants",
+        "Animals"
+      ],
+      "taxonomy_order": [
+        "Kingdom",
+        "Phylum",
+        "Class",
+        "Order",
+        "Family",
+        "Genus",
+        "Species"
+      ],
+      "mnemonics": [
+        "Kings Play Cricket On Flat Green Surfaces",
+        "Kindly Professors Cannot Often Fail Good Students"
+      ]
+    },
+    "animal_kingdom": {
+      "title": "2.5 The Animal Kingdom (Heads-up)",
+      "markdown": "- Animals eat organic material, move to find food, ingest and digest it; most reproduce via fertilization of eggs by sperm.\n- **Vertebrates** (with backbone) are only a tiny fraction of all animals.\n- **Invertebrates** (no backbone) include worms, cnidarians, echinoderms, molluscs, arthropods; >90% of invertebrates are insects."
+    },
+    "classification_of_vertebrates": {
+      "title": "2.6 The Classification of Vertebrates (Heads-up)",
+      "markdown": "- Vertebrates are split into five classes based on shared traits.",
+      "vertebrate_classes": [
+        "Fish",
+        "Amphibia (frogs and toads)",
+        "Reptiles (snakes and crocodiles)",
+        "Birds",
+        "Mammals"
+      ],
+      "mammal_subclasses": [
+        "Monotremes (duck-billed platypus, spiny anteater)",
+        "Marsupials (pouched mammals like kangaroo)",
+        "Placental (true) mammals"
+      ],
+      "example_mammal_orders": [
+        "Rodentia (rats, mice)",
+        "Carnivora (cats, dogs, bears, seals)",
+        "Artiodactyla (even-toed: pigs, sheep, cattle, antelopes)",
+        "Perissodactyla (odd-toed: horses, donkeys, zebras)",
+        "Cetacea (marine mammals: whales, sea cows)",
+        "Primates (monkeys, apes, humans)"
+      ],
+      "taxonomy_flow_example": "Kingdom → Phylum → Class → Order → Family → Genus → Species"
+    }
+  },
+  "mini_micronotes": {
+    "taxonomy_quick_ref": {
+      "title": "2.x Taxonomy at a Glance",
+      "markdown": "- **Order of ranks:** Kingdom → Phylum → Class → Order → Family → Genus → Species.\n- **Vertebrates vs Invertebrates:** Vertebrates (backbone) are a small slice of Animalia; Invertebrates dominate in diversity.\n- **Scientific names:** *Genus species* (Genus capitalized, species lowercase, italicized)."
+    },
+    "vertebrate_vs_invertebrate": {
+      "title": "2.x Vertebrate vs Invertebrate Snapshot",
+      "markdown": "- **Vertebrates:** fish, amphibians, reptiles, birds, mammals.\n- **Invertebrates:** insects (>90% of invertebrates), arachnids, crustaceans, molluscs, annelids, echinoderms, cnidarians."
+    }
+  },
+  "summary_bullets": [
+    "A scientific (binomial) name has two parts—Genus and species—and is written in italics or underlined.",
+    "Animals are divided into vertebrates and invertebrates.",
+    "Classification uses ranks: phyla, classes, orders, families, genera, species.",
+    "Mammalia are furry, milk-producing vertebrates.",
+    "Members of the same species can mate and produce fertile offspring.",
+    "Sub-groups within a species include breeds, races, and varieties."
+  ],
+  "self_test": [
+    {
+      "question": "1a) True or False. Is this name written correctly? trichosurus Vulpecula.",
+      "correct_answer": "False. The genus must be capitalized and the species lowercase, and the whole name italicized/underlined."
+    },
+    {
+      "question": "1b) What do you need to change?",
+      "correct_answer": "Write it as *Trichosurus vulpecula* (capitalize Genus, lowercase species, italicize)."
+    },
+    {
+      "question": "2a) Rearrange from biggest to smallest: cars | diesel cars | motor vehicles | my diesel Toyota | transportation",
+      "correct_answer": "Transportation → Motor vehicles → Cars → Diesel cars → My diesel Toyota."
+    },
+    {
+      "question": "2b) Rearrange from biggest to smallest: Class | Species | Phylum | Genus | Order | Kingdom | Family",
+      "correct_answer": "Kingdom → Phylum → Class → Order → Family → Genus → Species."
+    }
+  ]
+},
+{
+  "title": "Chapter 3 - The Cell",
+  "reading": "-Objectives-",
+  "estimated_read_time_sec": 900,
+  "summary_bullets": [
+    "Cells have three main parts: plasma membrane, cytoplasm, and nucleus.",
+    "Substances cross the membrane by diffusion, osmosis, active transport, phagocytosis, pinocytosis, and exocytosis.",
+    "Osmosis is the diffusion of water across a semi-permeable membrane.",
+    "Cytoplasm contains cytosol, inclusions, and organelles such as ribosomes, ER, mitochondria, Golgi bodies, and lysosomes.",
+    "The nucleus controls cell activity and contains DNA chromosomes.",
+    "Cells divide by mitosis and meiosis.",
+    "The cell can be compared to a factory, where each organelle has a specific function."
+  ],
+  "figures": [
+    { "figure_id": "f10", "caption": "Chapter opener image", "source": "ponga (CC BY)", "url": "figures/ch03/f10.jpg" },
+    { "figure_id": "f11", "caption": "Diagram 3.1: A variety of animal cells", "url": "figures/ch03/f11.png" },
+    { "figure_id": "f12", "caption": "Diagram 3.2: Typical animal cell", "url": "figures/ch03/f12.png" },
+    { "figure_id": "f13", "caption": "Diagram 3.3: Animal cell (electron microscope)", "url": "figures/ch03/f13.png" },
+    { "figure_id": "f14", "caption": "Diagram 3.4: Plasma membrane structure", "url": "figures/ch03/f14.png" },
+    { "figure_id": "f15", "caption": "Diagram 3.5: Diffusion in a liquid", "url": "figures/ch03/f15.png" },
+    { "figure_id": "f16", "caption": "Diagram 3.6: Osmosis", "url": "figures/ch03/f16.png" },
+    { "figure_id": "f17", "caption": "Diagram 3.7: RBCs in hypotonic solution", "url": "figures/ch03/f17.png" },
+    { "figure_id": "f18", "caption": "Diagram 3.8: RBCs in hypertonic solution", "url": "figures/ch03/f18.png" },
+    { "figure_id": "f19", "caption": "Diagram 3.9: RBCs in isotonic solution", "url": "figures/ch03/f19.png" },
+    { "figure_id": "f20", "caption": "Diagram 3.10: Phagocytosis", "url": "figures/ch03/f20.png" },
+    { "figure_id": "f21", "caption": "Diagram 3.11: Rough endoplasmic reticulum", "url": "figures/ch03/f21.png" },
+    { "figure_id": "f22", "caption": "Diagram 3.12: Mitochondrion", "url": "figures/ch03/f22.png" },
+    { "figure_id": "f23", "caption": "Diagram 3.13: Golgi body", "url": "figures/ch03/f23.png" },
+    { "figure_id": "f24", "caption": "Diagram 3.14: Cell with enlarged chromosome", "url": "figures/ch03/f24.png" },
+    { "figure_id": "f25", "caption": "Diagram 3.15: Human chromosomes", "url": "figures/ch03/f25.png" },
+    { "figure_id": "f26", "caption": "Diagram 3.16: Mitosis", "url": "figures/ch03/f26.png" },
+    { "figure_id": "f27", "caption": "Diagram 3.17: Meiosis", "url": "figures/ch03/f27.png" }
+  ],
+  "micro_notes": {
+    "cell_structure": {
+      "title": "3.2 The Cell",
+      "markdown": "- The cell is the basic unit of life.\n- Most cells are microscopic; the ostrich egg is an exception.\n- Main parts: plasma membrane, cytoplasm, nucleus.",
+      "image": "f12"
+    },
+    "plasma_membrane": {
+      "title": "3.3 The Plasma Membrane",
+      "markdown": "- Separates cell contents from surroundings.\n- Made of a phospholipid bilayer with embedded proteins.\n- Controls what enters and leaves the cell.",
+      "image": "f14"
+    },
+    "diffusion": {
+      "title": "3.3.1 Diffusion",
+      "markdown": "- Molecules move from high to low concentration.\n- Passive process; no energy required.\n- Important for O₂, CO₂, and nutrient exchange.",
+      "image": "f15"
+    },
+    "osmosis": {
+      "title": "3.3.1 Osmosis",
+      "markdown": "- Diffusion of water across a semi-permeable membrane.\n- Water moves from dilute to concentrated side.\n- Important in cell water balance and kidneys.",
+      "image": "f16"
+    },
+    "tonicity": {
+      "title": "3.3.1 Tonicity and Red Blood Cells",
+      "markdown": "- Hypotonic: water enters cell → may burst (haemolysis).\n- Hypertonic: water leaves cell → shrinks.\n- Isotonic: no net movement (normal saline).",
+      "images": ["f17", "f18", "f19"]
+    },
+    "active_transport": {
+      "title": "3.3.1 Active Transport",
+      "markdown": "- Moves substances against concentration gradient.\n- Requires energy (ATP).\n- Maintains Na⁺/K⁺ balance in nerve cells."
+    },
+    "phagocytosis": {
+      "title": "3.3.1 Phagocytosis",
+      "markdown": "- 'Cell eating' — engulfing solid particles like bacteria.\n- Uses energy; vital for white blood cell defense.",
+      "image": "f20"
+    },
+    "pinocytosis": {
+      "title": "3.3.1 Pinocytosis",
+      "markdown": "- 'Cell drinking' — intake of fluids.\n- Common in most cells."
+    },
+    "exocytosis": {
+      "title": "3.3.1 Exocytosis",
+      "markdown": "- Substances leave the cell via vesicles.\n- Used by secretory and nerve cells."
+    },
+    "cytoplasm": {
+      "title": "3.4 The Cytoplasm",
+      "markdown": "- Jelly-like cytosol with inclusions and organelles.\n- Site of many cellular reactions."
+    },
+    "ribosomes": {
+      "title": "Ribosomes",
+      "markdown": "- Tiny organelles that make proteins.\n- Found free in cytoplasm or on rough ER.",
+      "image": "f21"
+    },
+    "endoplasmic_reticulum": {
+      "title": "Endoplasmic Reticulum",
+      "markdown": "- Network of membranes from nucleus to plasma membrane.\n- Smooth ER makes fats; rough ER (with ribosomes) makes proteins.",
+      "image": "f21"
+    },
+    "mitochondria": {
+      "title": "Mitochondria",
+      "markdown": "- Powerhouses of the cell.\n- Site of cellular respiration (glucose + oxygen → CO₂ + water + energy).",
+      "image": "f22"
+    },
+    "golgi": {
+      "title": "Golgi Apparatus",
+      "markdown": "- Modifies and packages proteins and fats.\n- Forms vesicles for transport or secretion.",
+      "image": "f23"
+    },
+    "lysosomes": {
+      "title": "Lysosomes",
+      "markdown": "- Contain enzymes to digest bacteria, debris, and old organelles.\n- Important for cell cleanup and recycling."
+    },
+    "microtubules": {
+      "title": "Microfilaments and Microtubules",
+      "markdown": "- Responsible for cell shape and movement.\n- Form cilia, flagella, and centrioles used in cell division."
+    },
+    "nucleus": {
+      "title": "3.5 The Nucleus",
+      "markdown": "- Largest structure in the cell.\n- Controls activity and contains DNA.\n- Surrounded by double membrane with pores.\n- Contains nucleoli for ribosome production.",
+      "images": ["f24", "f25"]
+    },
+    "chromosomes": {
+      "title": "3.5.1 Chromosomes",
+      "markdown": "- Contain DNA and control cell activity.\n- Visible when cell divides.\n- Constant number per species (e.g., humans 46)."
+    },
+    "cell_division": {
+      "title": "3.6 Cell Division",
+      "markdown": "- Mitosis: produces identical cells for growth and repair.\n- Meiosis: produces gametes with half the chromosomes.",
+      "image": ["f26","f27"]
+    },
+    "cell_factory": {
+      "title": "3.7 The Cell as a Factory",
+      "markdown": "- Nucleus = director\n- Mitochondria = power supply\n- Ribosomes = product makers\n- Golgi = packaging\n- ER = transport\n- Lysosomes = waste disposal\n- Membrane = factory wall and gates"
+    }
+  }
+},
+  {
+    "title": "Chapter 16 - Endocrine System",
+    "reading": "-Objectives-\n• Characteristics of endocrine glands & hormones\n• Positions of the main endocrine glands\n• Pituitary–hypothalamus relationship\n• Key hormones from pituitary, pineal, thyroid, parathyroid, adrenals, pancreas, ovaries, testes\n• Homeostasis & feedback; control of water balance, blood volume, acid/base",
+    "estimated_read_time_sec": 360,
+    "micro_notes": {
+      "endocrine_vs_nervous": {
+        "title": "16.2 Endocrine System (Heads-up)",
+        "markdown": "- Nervous system: fast, short-lived electrical impulses.\n- Endocrine system: slower, longer-lasting chemical signals (hormones) in blood.\n- Example cascade: stress → adrenal adrenaline; reproduction & lactation involve multiple hormones."
+      },
+      "glands_and_hormones": {
+        "title": "16.3 Endocrine Glands & Hormones (Heads-up)",
+        "markdown": "- Endocrine glands are ductless; secrete hormones directly to blood.\n- Hormones act only on target organs/cells with matching receptors.\n- Blood concentrations are tiny, but small changes evoke responses.\n- Main glands: pituitary, pineal, thyroid, parathyroid, adrenals, pancreas, ovaries, testes."
+      },
+      "pituitary_hypothalamus": {
+        "title": "16.4 Pituitary Gland & Hypothalamus (Heads-up)",
+        "markdown": "- Pituitary: pea-sized, stalk below cerebrum; often called the “master gland”.\n- Controlled by the hypothalamus; link between nervous and endocrine systems.\n- Two parts with different roles: anterior and posterior pituitary."
+      }
+    },
+    "mini_micronotes": {
+      "summary_hormones": {
+        "title": "16.x Hormone Highlights",
+        "markdown": "- Anterior pituitary: GH, Prolactin, FSH, LH (plus others).\n- Posterior pituitary: ADH (water balance & blood pressure), Oxytocin (milk let-down).\n- Pineal: melatonin (seasonality/sexual development).\n- Thyroid: thyroxine (growth & metabolic rate; iodine-dependent).\n- Parathyroids: parathormone (blood Ca²⁺ and phosphate balance).\n- Adrenal cortex: aldosterone (Na⁺/K⁺), cortisone/hydrocortisone (metabolism), sex steroids.\n- Adrenal medulla: adrenaline (fight–flight).\n- Pancreas: insulin (blood glucose regulation).\n- Ovaries: oestrogen (female characteristics, uterine priming), progesterone (maintains uterine lining).\n- Testes: testosterone (male characteristics)."
+      }
+    },
+    "summary_bullets": []
+  },
+  {
+    "title": "Chapter 9 - Respiratory System",
+    "reading": "-Overview-\n• Gas exchange supplies O₂ and removes CO₂ for cellular respiration\n• Alveoli provide large surface area for diffusion",
+    "estimated_read_time_sec": 300,
+    "micro_notes": {
+      "overview": {
+        "title": "9.2 Overview (Heads-up)",
+        "markdown": "- Cellular respiration in mitochondria uses glucose + O₂ → CO₂ + H₂O + energy.\n- Alveoli: grape-like sacs with dense capillary networks; thin, moist surfaces minimize diffusion distance.\n- Mammals need large O₂ intake; lungs provide vast surface area for exchange."
+      },
+      "oxygen_transport": {
+        "title": "9.3 Diffusion & Transport of Oxygen (Heads-up)",
+        "markdown": "- Air in alveoli is O₂-rich; surrounding capillary blood is deoxygenated.\n- O₂ diffuses down its gradient into blood; haemoglobin binds O₂."
+      },
+      "control_of_breathing": {
+        "title": "9.x Control of Breathing (Heads-up)",
+        "markdown": "- Expiration largely passive (elastic recoil).\n- Breathing rate is influenced by CO₂ concentration; helps regulate blood acid–base balance.\n- Mucus & cilia in airways trap and clear particles."
+      }
+    },
+    "mini_micronotes": {
+      "inspiration_mechanics": {
+        "title": "9.x.x Mechanics of Inspiration",
+        "markdown": "- Ribs move up/out and diaphragm flattens to increase thoracic volume; air flows in."
+      }
+    },
+    "summary_bullets": []
+  },
+  {
+    "title": "Chapter 10 - Lymphatic System",
+    "reading": "-Objectives-\n• Functions, key terms (tissue fluid, lymph, lymphocyte)\n• Formation and composition of lymph\n• Lymph node structure, major nodes\n• Lymph circulation and return to blood\n• Spleen, thymus, lacteals",
+    "estimated_read_time_sec": 300,
+    "micro_notes": {
+      "what_is_lymph": {
+        "title": "10.2 Lymphatic System (Heads-up)",
+        "markdown": "- Tissue fluid entering lymphatic capillaries becomes lymph (clear, plasma-like).\n- Rich in white blood cells (mostly lymphocytes); contains proteins, debris, foreign particles, bacteria.\n- Intestinal lymph (from villi lacteals) carries many fat globules after a meal.\n- Lymph flows from capillaries → larger vessels → rejoins blood circulation."
+      },
+      "lymphatic_vessels": {
+        "title": "10.2.1 Lymphatic Vessels (Heads-up)",
+        "markdown": "- Thin-walled like veins; fluid movement aided by surrounding muscle contractions.\n- Valves prevent backflow.\n- Key difference from veins: lymph passes through at least one lymph node before returning to blood."
+      }
+    },
+    "mini_micronotes": {
+      "nodes_and_organs": {
+        "title": "10.x Lymph Nodes & Organs",
+        "markdown": "- Nodes filter lymph & house immune cells; spleen and thymus have specialized immune roles."
+      }
+    },
+    "summary_bullets": []
+  }
+]

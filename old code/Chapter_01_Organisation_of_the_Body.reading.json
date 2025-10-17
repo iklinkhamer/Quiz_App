@@ -1,0 +1,17 @@
+{
+  "title": "Organisation of the Body",
+  "reading": "Anatomy studies body structure and the names and positions of parts; physiology studies how those parts function. The body can be described using standard anatomical position and directional terms (superior/inferior, anterior/posterior, medial/lateral, proximal/distal). Planes of section—sagittal, coronal, and transverse—help describe slices through the body. The trunk contains large cavities: the dorsal cavity (cranial and spinal) and the ventral cavity (thoracic and abdominopelvic). Organs are grouped into systems (e.g., musculoskeletal, nervous, cardiovascular). Levels of organisation progress from chemical → cellular → tissue → organ → system → organism. Homeostasis describes how variables such as temperature or blood pressure are maintained within narrow limits by negative feedback.",
+  "summary_bullets": [
+    "Anatomy = structure; physiology = function.",
+    "Anatomical position standardises descriptions.",
+    "Directional terms and body planes give precise locations and sections.",
+    "Major cavities: dorsal (cranial, spinal) and ventral (thoracic, abdominopelvic).",
+    "Structural levels: chemical → cellular → tissue → organ → system → organism.",
+    "Homeostasis uses negative feedback to keep internal conditions stable."
+  ],
+  "estimated_read_time_sec": 90,
+  "source_refs": [
+    { "note": "Introductory A&P overview commonly covered in Chapter 1." }
+  ]
+}
+
