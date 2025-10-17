@@ -21,12 +21,15 @@ import re
 import os
 import glob
 from datetime import datetime, timedelta
-from pathlib import Path  # NEW
+from pathlib import Path
+from typing import Optional
 
 # ---------- Page Setup ----------
 st.set_page_config(page_title="🧠 QuizzyBee", layout="centered")
 
-# ---------- Helpers: files ----------
+# ---------- Configuration ----------
+SECTIONS_IMG_ROOT = "book_shots"  # folder with screenshots: book_shots/<chapter>/<section>/*.(png|jpg|jpeg|gif)
+
 REQUIRED_HEADERS = {
     "question",
     # any of these for options
@@ -38,25 +41,33 @@ REQUIRED_HEADERS = {
     "answer", "correct", "correct answer", "Correct Answer",
 }
 
+# Candidates for chapter/section columns in your CSV
+CHAPTER_COL_CANDIDATES = ["chapter", "chapters", "Chapter", "wiki_chapter", "chapter_title"]
+SECTION_COL_CANDIDATES = ["section", "sections", "subchapter", "subchapters", "subsection", "subsections", "wiki_section"]
+
 PROFILES_FILE = "quiz_profiles.json"
-SETTINGS_FILE = "quiz_settings.json"   # persists defaults across runs
+SETTINGS_FILE = "quiz_settings.json"
 NO_PROFILE_LABEL = "No profile (don't save)"
 
-# NEW: Pre-reading modes
+# Pre-reading modes
 PRE_READ_NONE = "Skip"
 PRE_READ_SUMMARY = "Summary only"
 PRE_READ_FULL = "Full reading"
 PRE_READ_MODES = [PRE_READ_NONE, PRE_READ_SUMMARY, PRE_READ_FULL]
 
-# --- Rotation & Spaced Practice Config (NEW) ---
-ACTIVE_POOL_SIZE = 10          # how many questions to drill at once
-GRADUATE_STREAK = 3            # correct-in-a-row needed to graduate a question
-BASE_INTERVAL_MIN = 1          # minutes after a wrong answer (short retry)
-INTERVAL_GROWTH_FACTOR = 2.0   # doubling on each correct
+# Rotation & Spaced Practice Config
+ACTIVE_POOL_SIZE = 10
+GRADUATE_STREAK = 3
+BASE_INTERVAL_MIN = 1
+INTERVAL_GROWTH_FACTOR = 2.0
+
+LETTERS = ["A", "B", "C", "D"]
 
 
+# ---------- Small helpers ----------
 def safe_name(s: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]+", "_", s).strip("_").lower()
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", str(s)).strip("_").lower() if s is not None else ""
+
 
 def list_question_sets(search_root="."):
     """Find CSVs recursively that look like MCQ sets (by header)."""
@@ -73,8 +84,8 @@ def list_question_sets(search_root="."):
     valid = sorted(valid, key=lambda p: (p.count(os.sep), p.lower()))
     return valid
 
-def progress_path_for(csv_file: str, profile_name: str | None):
-    """Unique progress file per dataset & profile; None if practice-without-profile."""
+
+def progress_path_for(csv_file: str, profile_name: Optional[str]):
     if not profile_name or profile_name == NO_PROFILE_LABEL:
         return None
     base = os.path.splitext(os.path.basename(csv_file))[0]
@@ -82,9 +93,9 @@ def progress_path_for(csv_file: str, profile_name: str | None):
     safe_prof = safe_name(profile_name)
     return f"quiz_progress__{safe_ds}__{safe_prof}.json"
 
+
 # ---------- Profiles store ----------
 def load_profiles() -> list[str]:
-    """Persisted list of profile display names. Create with ['Ilse'] on first run."""
     try:
         with open(PROFILES_FILE) as f:
             data = json.load(f)
@@ -95,7 +106,8 @@ def load_profiles() -> list[str]:
         return ["Ilse"]
     except Exception:
         pass
-    return ["Ilse"]  # fallback
+    return ["Ilse"]
+
 
 def save_profiles(names: list[str]):
     try:
@@ -103,6 +115,7 @@ def save_profiles(names: list[str]):
             json.dump(sorted(set(names), key=str.lower), f, indent=2)
     except Exception as e:
         st.warning(f"Couldn't save profiles: {e}")
+
 
 def add_profile(name: str):
     name = name.strip()
@@ -113,9 +126,9 @@ def add_profile(name: str):
         profiles.append(name)
         save_profiles(profiles)
 
+
 # ---------- App-wide settings ----------
 def load_settings() -> dict:
-    """Return persisted settings."""
     try:
         with open(SETTINGS_FILE) as f:
             data = json.load(f)
@@ -127,7 +140,9 @@ def load_settings() -> dict:
         pass
     return {}
 
-def save_settings(last_profile: str, last_num_questions: int, pre_read_mode: str):
+
+def save_settings(last_profile: str, last_num_questions: int, pre_read_mode: str,
+                  last_chapter: Optional[str], last_section: Optional[str]):
     try:
         with open(SETTINGS_FILE, "w") as f:
             json.dump(
@@ -135,16 +150,18 @@ def save_settings(last_profile: str, last_num_questions: int, pre_read_mode: str
                     "last_profile": last_profile,
                     "last_num_questions": int(last_num_questions),
                     "pre_read_mode": pre_read_mode,
+                    "last_chapter": last_chapter,
+                    "last_section": last_section,
                 },
                 f, indent=2
             )
     except Exception as e:
         st.warning(f"Couldn't save settings: {e}")
 
+
 # ---------- App State Defaults ----------
 def init_state():
     settings = load_settings()
-
     defaults = {
         "screen": "start",              # "start" | "reading" | "quiz" | "summary"
         "num_questions": settings.get("last_num_questions", 20),
@@ -168,204 +185,100 @@ def init_state():
         "new_profile_name": "",
         # reset confirmation state
         "confirm_reset": False,
-        # NEW: pre-reading
+        # pre-reading
         "pre_read_mode": settings.get("pre_read_mode", PRE_READ_NONE),
-        "reading_payload": None,        # loaded reading JSON dict
-        "reading_stem": None,           # e.g. "ch01_Organisation_of_the_Body"
+        "reading_payload": None,        # JSON reading fallback
+        "reading_stem": None,
+        # taxonomy from CSV
+        "chapter_col": None,
+        "section_col": None,
+        "chapters_list": [],
+        "sections_by_chapter": {},      # {chapter: sorted list of sections}
+        "selected_chapter": settings.get("last_chapter"),   # can be None or chapter string
+        "selected_section": settings.get("last_section"),   # can be None or section string
+        # raw df cache per file to avoid re-reading
+        "df_cache": {},
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
+
 init_state()
 
-# Global title (cute!)
 st.title("🐝 QuizzyBee")
-st.caption("Questions return sooner if you miss them!")
+st.caption("Filter by chapter & section • See screenshots • Then drill only those questions")
 
-LETTERS = ["A", "B", "C", "D"]
 
-# ---------- Load questions from CSV ----------
-@st.cache_data
-def load_questions(csv_file="anatomy_physiology_mcqs.csv"):
-    df = pd.read_csv(csv_file, sep=",", engine="python")
-    df.columns = df.columns.str.strip()
-
-    def col_try(*names):
-        for n in names:
-            if n in df.columns:
-                return n
-        return None
-
-    q_col = col_try("question", "Question")
-    a_cols = [
-        col_try("optionA", "answerA", "AnswerA", "A"),
-        col_try("optionB", "answerB", "AnswerB", "B"),
-        col_try("optionC", "answerC", "AnswerC", "C"),
-        col_try("optionD", "answerD", "AnswerD", "D"),
-    ]
-    ans_col = col_try("answer", "correct", "Correct", "correct answer", "Correct Answer")
-
-    if not q_col or not ans_col or any(c is None for c in a_cols):
-        raise ValueError(
-            f"CSV '{csv_file}' is missing required columns. Expected headers like: "
-            "question, optionA, optionB, optionC, optionD, answer"
-        )
-
-    now_iso = datetime.now().isoformat()
-    questions_list = []
-    for _, row in df.iterrows():
-        options = [str(row[a_cols[0]]), str(row[a_cols[1]]), str(row[a_cols[2]]), str(row[a_cols[3]])]
-        ans_raw = str(row[ans_col]).strip()
-
-        # Parse letter A-D, or fall back to matching full option text
-        letter = None
-        m = re.match(r"^\s*([A-D])\b", ans_raw, re.IGNORECASE)
-        if m:
-            letter = m.group(1).upper()
-        elif ans_raw:
-            try:
-                idx_guess = [o.lower().strip() for o in options].index(ans_raw.lower().strip())
-                letter = LETTERS[idx_guess]
-            except ValueError:
-                letter = "A"
-
-        correct_idx = LETTERS.index(letter) if letter in LETTERS else 0
-
-        questions_list.append({
-            "question": row[q_col],
-            "options": options,
-            "answer_letter": letter,
-            "answer_idx": correct_idx,
-            "interval": 1,
-            "next_time": now_iso,
-            "status": "unseen",          # unseen | active | deferred
-            "streak": 0,                 # consecutive correct answers
-            "seen_count": 0              # total times shown (nice for debugging)
-        })
-    return questions_list
-
-# ---------- Rotation helpers (NEW) ----------
-def normalize_question_fields(q: dict):
-    """Add defaults for older progress files."""
-    q.setdefault("status", "unseen")
-    q.setdefault("streak", 0)
-    q.setdefault("seen_count", 0)
-    q.setdefault("interval", 1)
-    q.setdefault("next_time", datetime.now().isoformat())
-    return q
-
-def ensure_active_pool():
-    """
-    Promote unseen questions into 'active' until we have ACTIVE_POOL_SIZE active items,
-    excluding questions permanently deferred (they'll still reappear when due).
-    """
-    if not st.session_state.quiz_data:
-        return
-    # normalize (in case of older saves)
-    for q in st.session_state.quiz_data:
-        normalize_question_fields(q)
-
-    active = [q for q in st.session_state.quiz_data if q["status"] == "active"]
-    need = max(0, ACTIVE_POOL_SIZE - len(active))
-    if need <= 0:
-        return
-
-    # FIFO: promote earliest unseen items first
-    unseen = [q for q in st.session_state.quiz_data if q["status"] == "unseen"]
-    for q in unseen[:need]:
-        q["status"] = "active"
-        q["interval"] = max(1, int(q.get("interval", 1)))
-        q["next_time"] = datetime.now().isoformat()
-
-def graduate_question(q: dict):
-    """
-    Move a well-known question out of the active pool and schedule it further out.
-    It will come back later when it's due.
-    """
-    q["status"] = "deferred"
-    # push it out using current interval (already grown) – or give it an extra push
-    minutes = max(5, int(q.get("interval", 1)))  # at least 5 minutes
-    q["next_time"] = (datetime.now() + timedelta(minutes=minutes)).isoformat()
-    q["streak"] = 0  # optional: reset streak once it's graduated
-
-def active_or_deferred_due_indexes():
-    """Return indexes of questions that are due and either active or deferred."""
-    now = datetime.now()
-    data = st.session_state.quiz_data or []
-    due = []
-    for i, q in enumerate(data):
-        if q.get("status") in ("active", "deferred"):
-            try:
-                if datetime.fromisoformat(q["next_time"]) <= now:
-                    due.append(i)
-            except Exception:
-                # if broken timestamp, consider it due soon
-                due.append(i)
-    return due
-
-def pick_next_question_idx_rotation():
-    """
-    Priority:
-    1) Due 'active' questions (drill set)
-    2) Due 'deferred' questions (spaced checks)
-    3) If nothing due, pick the 'active' question with the earliest next_time
-    """
-    data = st.session_state.quiz_data or []
-    now = datetime.now()
-
-    active_ids = [i for i, q in enumerate(data) if q.get("status") == "active"]
-    deferred_ids = [i for i, q in enumerate(data) if q.get("status") == "deferred"]
-
-    due = active_or_deferred_due_indexes()
-    due_active = [i for i in due if i in active_ids]
-    if due_active:
-        return random.choice(due_active)
-
-    due_deferred = [i for i in due if i in deferred_ids]
-    if due_deferred:
-        return random.choice(due_deferred)
-
-    # Nothing due: pick the soonest-next active item (keeps drilling the pool)
-    if active_ids:
-        active_sorted = sorted(
-            active_ids,
-            key=lambda i: datetime.fromisoformat(data[i]["next_time"])
-                          if "next_time" in data[i] else now
-        )
-        return active_sorted[0]
-
-    # No active (rare) → make sure we refill then pick again
-    ensure_active_pool()
-    active_ids = [i for i, q in enumerate(st.session_state.quiz_data) if q.get("status") == "active"]
-    if active_ids:
-        return random.choice(active_ids)
-
+# ---------- CSV helpers ----------
+def _pick_first_present(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
+    for c in df.columns:
+        normalized = c.strip()
+        if normalized in candidates:
+            return normalized
+    # loose match ignoring case/spaces
+    cols_lower = {c.lower().strip(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in cols_lower:
+            return cols_lower[cand.lower()]
     return None
 
-# ---------- Reading loader (NEW) ----------
-def extract_chapter_stem_from_csv(csv_path: str) -> str | None:
-    """
-    Try to get a stem like 'ch01_Organisation_of_the_Body' from the CSV filename.
-    Works with names like:
-      mcqs_ch01_Organisation_of_the_Body.csv
-      ch01_Organisation_of_the_Body.csv
-    """
+
+def _split_multi(value) -> list[str]:
+    if pd.isna(value):
+        return []
+    text = str(value)
+    # split by comma or semicolon
+    parts = re.split(r"[;,]", text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+@st.cache_data
+def read_df(csv_file: str) -> pd.DataFrame:
+    return pd.read_csv(csv_file, sep=",", engine="python")
+
+
+def detect_taxonomy(df: pd.DataFrame) -> tuple[Optional[str], Optional[str], list[str], dict]:
+    """Return (chapter_col, section_col, chapters_list, sections_by_chapter)."""
+    chapter_col = _pick_first_present(df, CHAPTER_COL_CANDIDATES)
+    section_col = _pick_first_present(df, SECTION_COL_CANDIDATES)
+
+    chapters_list: list[str] = []
+    sections_by_chapter: dict[str, list[str]] = {}
+
+    if chapter_col:
+        # collect unique chapters
+        all_chapters = []
+        for v in df[chapter_col].fillna(""):
+            all_chapters.extend(_split_multi(v))
+        chapters_list = sorted(sorted(set(all_chapters)), key=lambda s: s.lower())
+
+    if chapter_col and section_col:
+        # map chapter -> set(sections) from rows
+        temp = {c: set() for c in chapters_list} if chapters_list else {}
+        for _, row in df.iterrows():
+            chs = _split_multi(row.get(chapter_col, ""))
+            secs = _split_multi(row.get(section_col, ""))
+            if not chs or not secs:
+                continue
+            for ch in chs:
+                temp.setdefault(ch, set()).update(secs)
+        sections_by_chapter = {ch: sorted(sorted(list(s)), key=lambda x: x.lower()) for ch, s in temp.items()}
+
+    return chapter_col, section_col, chapters_list, sections_by_chapter
+
+
+# ---------- Reading JSON fallback (your earlier flow) ----------
+def extract_chapter_stem_from_csv(csv_path: str) -> Optional[str]:
     name = Path(csv_path).stem
     m = re.search(r"(ch\d{2}_[A-Za-z0-9_]+)$", name)
     if m:
         return m.group(1)
-    m = re.search(r"(ch\d{2}_.+)", name)  # fallback catch-all
+    m = re.search(r"(ch\d{2}_.+)", name)
     return m.group(1) if m else None
 
-def find_reading_json_for_csv(csv_path: str) -> str | None:
-    """
-    Look for a reading file near the CSV with the same stem:
-      <dir>/<stem>.reading.json
-      <dir>/<stem>.json
-    Also supports a nested layout:
-      <dir>/<stem>/reading.json
-    """
+
+def find_reading_json_for_csv(csv_path: str) -> Optional[str]:
     p = Path(csv_path)
     stem = extract_chapter_stem_from_csv(csv_path)
     if not stem:
@@ -380,11 +293,12 @@ def find_reading_json_for_csv(csv_path: str) -> str | None:
             return str(c)
     return None
 
-def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | None]:
+
+def load_reading_payload(csv_path: str):
     """
-    Return (payload, mode_support, stem)
-    'payload' has keys: title, reading, summary_bullets, estimated_read_time_sec.
-    'mode_support' is one of: "both", "summary_only" (if reading missing), or None if not found.
+    Return (payload, support, stem)
+    payload keys: title, reading, summary_bullets, estimated_read_time_sec
+    support: "both" | "summary_only" | None
     """
     stem = extract_chapter_stem_from_csv(csv_path)
     json_path = find_reading_json_for_csv(csv_path)
@@ -393,7 +307,6 @@ def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | 
     try:
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Normalize minimal shape
         title = data.get("title") or stem.replace("_", " ")
         reading = (data.get("reading") or "").strip()
         summary_bullets = data.get("summary_bullets") or []
@@ -415,39 +328,173 @@ def load_reading_payload(csv_path: str) -> tuple[dict | None, str | None, str | 
         st.warning(f"Couldn't load reading JSON: {e}")
         return None, None, stem
 
+
+# ---------- Load questions (now with chapter/section filter) ----------
+def normalize_question_fields(q: dict):
+    q.setdefault("status", "unseen")
+    q.setdefault("streak", 0)
+    q.setdefault("seen_count", 0)
+    q.setdefault("interval", 1)
+    q.setdefault("next_time", datetime.now().isoformat())
+    return q
+
+
+def _col_try(df: pd.DataFrame, *names):
+    for n in names:
+        if n in df.columns:
+            return n
+    # case-insensitive fallback
+    for n in names:
+        for c in df.columns:
+            if c.strip().lower() == n.strip().lower():
+                return c
+    return None
+
+
+def _row_matches_filters(row, chapter_col, section_col, sel_chapter, sel_section) -> bool:
+    """Return True if this row should be included given user's selections."""
+    if not sel_chapter and not sel_section:
+        return True  # no filtering requested
+
+    # When only section is selected but no chapter (rare), include if section matches anywhere.
+    if sel_section and not sel_chapter and section_col:
+        secs = set(_split_multi(row.get(section_col, "")))
+        return sel_section in secs
+
+    # When chapter selected (with or without section)
+    if sel_chapter and chapter_col:
+        chs = set(_split_multi(row.get(chapter_col, "")))
+        if sel_chapter not in chs:
+            return False
+        if sel_section and section_col:
+            secs = set(_split_multi(row.get(section_col, "")))
+            return sel_section in secs if secs else False
+        return True
+
+    return False
+
+
+def build_questions_from_df(df: pd.DataFrame,
+                            sel_chapter: Optional[str],
+                            sel_section: Optional[str],
+                            chapter_col: Optional[str],
+                            section_col: Optional[str]) -> list[dict]:
+    """Create internal question dicts, filtered by chapter/section selections."""
+    df = df.copy()
+    df.columns = df.columns.str.strip()
+
+    q_col = _col_try(df, "question", "Question")
+    a_cols = [
+        _col_try(df, "optionA", "answerA", "AnswerA", "A"),
+        _col_try(df, "optionB", "answerB", "AnswerB", "B"),
+        _col_try(df, "optionC", "answerC", "AnswerC", "C"),
+        _col_try(df, "optionD", "answerD", "AnswerD", "D"),
+    ]
+    ans_col = _col_try(df, "answer", "correct", "Correct", "correct answer", "Correct Answer")
+
+    if not q_col or not ans_col or any(c is None for c in a_cols):
+        raise ValueError(
+            "CSV is missing required columns. Expected: "
+            "question, optionA, optionB, optionC, optionD, answer"
+        )
+
+    now_iso = datetime.now().isoformat()
+    items: list[dict] = []
+
+    for _, row in df.iterrows():
+        if not _row_matches_filters(row, chapter_col, section_col, sel_chapter, sel_section):
+            continue
+
+        options = [str(row[a_cols[0]]), str(row[a_cols[1]]), str(row[a_cols[2]]), str(row[a_cols[3]])]
+        ans_raw = str(row[ans_col]).strip()
+
+        # Parse A-D or try to match full text
+        m = re.match(r"^\s*([A-D])\b", ans_raw, re.IGNORECASE)
+        if m:
+            letter = m.group(1).upper()
+        else:
+            letter = None
+            try:
+                idx_guess = [o.lower().strip() for o in options].index(ans_raw.lower().strip())
+                letter = LETTERS[idx_guess]
+            except Exception:
+                letter = "A"
+
+        correct_idx = LETTERS.index(letter) if letter in LETTERS else 0
+
+        items.append({
+            "question": row[q_col],
+            "options": options,
+            "answer_letter": letter,
+            "answer_idx": correct_idx,
+            "interval": 1,
+            "next_time": now_iso,
+            "status": "unseen",
+            "streak": 0,
+            "seen_count": 0
+        })
+
+    return items
+
+
 def ensure_quiz_data_loaded():
-    """(Re)load quiz_data if dataset or profile selection changed."""
+    """(Re)load quiz_data if dataset/profile/filters changed."""
     dataset_changed = (
         st.session_state.quiz_data is None or
         st.session_state.selected_csv != st.session_state.last_loaded_csv or
-        st.session_state.selected_profile != st.session_state.last_loaded_profile
+        st.session_state.selected_profile != st.session_state.last_loaded_profile or
+        st.session_state.get("filters_signature") != (st.session_state.selected_chapter, st.session_state.selected_section)
     )
+
     if dataset_changed and st.session_state.selected_csv:
-        st.session_state.quiz_data = load_questions(st.session_state.selected_csv)
-        # after loading quiz_data and merging progress
+        df = read_df(st.session_state.selected_csv)
+
+        # detect chapter/section columns and taxonomy
+        chapter_col, section_col, chapters_list, sections_by_chapter = detect_taxonomy(df)
+        st.session_state.chapter_col = chapter_col
+        st.session_state.section_col = section_col
+        st.session_state.chapters_list = chapters_list
+        st.session_state.sections_by_chapter = sections_by_chapter
+
+        # build filtered questions
+        questions = build_questions_from_df(
+            df,
+            st.session_state.selected_chapter,
+            st.session_state.selected_section,
+            chapter_col,
+            section_col
+        )
+        st.session_state.quiz_data = questions
+
+        # normalize (in case of older saves)
         for q in st.session_state.quiz_data:
             normalize_question_fields(q)
+
         st.session_state.last_loaded_csv = st.session_state.selected_csv
         st.session_state.last_loaded_profile = st.session_state.selected_profile
-        # Merge saved SRS schedule only if we are in a saving profile
+        st.session_state.filters_signature = (st.session_state.selected_chapter, st.session_state.selected_section)
+
+        # Merge saved schedule only if saving is enabled
         if st.session_state.selected_profile != NO_PROFILE_LABEL:
             load_progress(merge=True)
 
-# ---------- Load/save/reset progress (per dataset & profile) ----------
+
+# ---------- Load/save/reset progress ----------
 def save_progress():
     path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
     if path is None:
-        return  # no-save mode
+        return
     try:
         with open(path, "w") as f:
             json.dump(st.session_state.quiz_data, f, indent=2, default=str)
     except Exception as e:
         st.warning(f"Couldn't save progress to '{path}': {e}")
 
+
 def load_progress(merge=False):
     path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
     if path is None:
-        return  # no-save mode
+        return
     try:
         with open(path) as f:
             saved = json.load(f)
@@ -465,8 +512,8 @@ def load_progress(merge=False):
     except Exception as e:
         st.warning(f"Couldn't load prior progress from '{path}': {e}")
 
+
 def reset_progress_for_current_set():
-    """Delete the progress file for the current (dataset, profile)."""
     path = progress_path_for(st.session_state.selected_csv or "default", st.session_state.selected_profile)
     if path and os.path.exists(path):
         try:
@@ -474,42 +521,149 @@ def reset_progress_for_current_set():
             st.success("Progress reset for this set.")
         except Exception as e:
             st.warning(f"Couldn't delete progress file: {e}")
-    # also reset in-memory intervals to defaults
     if st.session_state.quiz_data:
         now_iso = datetime.now().isoformat()
         for q in st.session_state.quiz_data:
             q["interval"] = 1
             q["next_time"] = now_iso
 
-# ---------- Quiz helpers ----------
+
+# ---------- Rotation helpers ----------
+def ensure_active_pool():
+    if not st.session_state.quiz_data:
+        return
+    for q in st.session_state.quiz_data:
+        normalize_question_fields(q)
+
+    active = [q for q in st.session_state.quiz_data if q["status"] == "active"]
+    need = max(0, ACTIVE_POOL_SIZE - len(active))
+    if need <= 0:
+        return
+
+    unseen = [q for q in st.session_state.quiz_data if q["status"] == "unseen"]
+    for q in unseen[:need]:
+        q["status"] = "active"
+        q["interval"] = max(1, int(q.get("interval", 1)))
+        q["next_time"] = datetime.now().isoformat()
+
+
+def graduate_question(q: dict):
+    q["status"] = "deferred"
+    minutes = max(5, int(q.get("interval", 1)))
+    q["next_time"] = (datetime.now() + timedelta(minutes=minutes)).isoformat()
+    q["streak"] = 0
+
+
+def active_or_deferred_due_indexes():
+    now = datetime.now()
+    data = st.session_state.quiz_data or []
+    due = []
+    for i, q in enumerate(data):
+        if q.get("status") in ("active", "deferred"):
+            try:
+                if datetime.fromisoformat(q["next_time"]) <= now:
+                    due.append(i)
+            except Exception:
+                due.append(i)
+    return due
+
+
+def pick_next_question_idx_rotation():
+    data = st.session_state.quiz_data or []
+    now = datetime.now()
+
+    active_ids = [i for i, q in enumerate(data) if q.get("status") == "active"]
+    deferred_ids = [i for i, q in enumerate(data) if q.get("status") == "deferred"]
+
+    due = active_or_deferred_due_indexes()
+    due_active = [i for i in due if i in active_ids]
+    if due_active:
+        return random.choice(due_active)
+
+    due_deferred = [i for i in due if i in deferred_ids]
+    if due_deferred:
+        return random.choice(due_deferred)
+
+    if active_ids:
+        active_sorted = sorted(
+            active_ids,
+            key=lambda i: datetime.fromisoformat(data[i]["next_time"])
+                          if "next_time" in data[i] else now
+        )
+        return active_sorted[0]
+
+    ensure_active_pool()
+    active_ids = [i for i, q in enumerate(st.session_state.quiz_data) if q.get("status") == "active"]
+    if active_ids:
+        return random.choice(active_ids)
+    return None
+
+
+# ---------- Due helpers ----------
 def due_indexes():
     now = datetime.now()
     return [i for i, q in enumerate(st.session_state.quiz_data) if datetime.fromisoformat(q["next_time"]) <= now]
 
-def pick_next_question_idx():
-    due = due_indexes()
-    if not due:
-        return None
-    return random.choice(due)
 
-def finish_or_continue_session():
-    """Call after pressing Continue or auto-advancing."""
-    n = st.session_state.num_questions
-    if st.session_state.questions_answered >= n:
-        st.session_state.screen = "summary"
-    else:
-        st.session_state.current_question_idx = None  # pick a fresh due question
-    st.rerun()
+# ---------- Screenshots (reading) ----------
+def find_section_images(chapter: Optional[str], section: Optional[str]) -> dict:
+    """
+    Returns a mapping {section_title: [image_paths]}.
+    If only chapter is selected: gather all section folders under that chapter.
+    If chapter+section: just that one.
+    """
+    result: dict[str, list[str]] = {}
+    root = Path(SECTIONS_IMG_ROOT)
 
+    if not chapter and not section:
+        return result  # no target
+
+    if chapter and section:
+        ch_dir = root / safe_name(chapter)
+        sec_dir = ch_dir / safe_name(section)
+        imgs = []
+        for ext in ("*.png", "*.jpg", "*.jpeg", "*.gif"):
+            imgs.extend(sorted(glob.glob(str(sec_dir / ext))))
+        if imgs:
+            result[section] = imgs
+        return result
+
+    # Only chapter chosen → find all section subfolders
+    if chapter:
+        ch_dir = root / safe_name(chapter)
+        if not ch_dir.exists():
+            return result
+        # If we know declared sections, use that order; else list directories
+        sections_known = st.session_state.sections_by_chapter.get(chapter, [])
+        if sections_known:
+            sections = sections_known
+        else:
+            # derive from folders
+            sections = []
+            for p in ch_dir.glob("*"):
+                if p.is_dir():
+                    sections.append(p.name.replace("_", " "))
+            sections = sorted(sections, key=lambda s: s.lower())
+
+        for sec in sections:
+            sec_dir = ch_dir / safe_name(sec)
+            imgs = []
+            for ext in ("*.png", "*.jpg", "*.jpeg", "*.gif"):
+                imgs.extend(sorted(glob.glob(str(sec_dir / ext))))
+            if imgs:
+                result[sec] = imgs
+
+    return result
+
+
+# ---------- UI: question rendering ----------
 def show_question(idx):
     q = st.session_state.quiz_data[idx]
     opts_idx = list(range(4))
     def fmt(i): return f"{LETTERS[i]}. {q['options'][i]}"
 
-    # If we're awaiting the user's Continue click, lock inputs and just show feedback.
     if st.session_state.awaiting_continue:
-        st.radio("Choose an answer:", opts_idx, format_func=fmt,
-                 key=f"choice_q{idx}", disabled=True)
+        st.radio("Choose an answer:", opts_idx, format_func=fmt, key=f"choice_q{idx}", disabled=True)
         if st.session_state.last_was_correct:
             st.success(st.session_state.last_feedback)
         else:
@@ -522,7 +676,6 @@ def show_question(idx):
             finish_or_continue_session()
         return
 
-    # Normal interactive state before Submit
     selected_idx = st.radio("Choose an answer:", opts_idx, format_func=fmt, key=f"choice_q{idx}")
     submitted = st.button("Submit", type="primary", key=f"submit_q{idx}")
 
@@ -531,57 +684,58 @@ def show_question(idx):
         correct_idx = q["answer_idx"]
         correct_letter = LETTERS[correct_idx]
         correct_text = q["options"][correct_idx]
-    
+
         if selected_idx == correct_idx:
-            # ✅ correct
             st.session_state.correct_count += 1
-    
-            # grow interval (spaced practice)
             q["interval"] = max(1, int(q.get("interval", 1) * INTERVAL_GROWTH_FACTOR))
             q["streak"] = int(q.get("streak", 0)) + 1
             st.session_state.last_was_correct = True
             st.session_state.last_feedback = "✅ Correct!"
-    
-            # next appearance
+
             q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
-    
-            # Graduation check (only for 'active' pool items)
+
             if q.get("status") == "active" and q["streak"] >= GRADUATE_STREAK:
                 graduate_question(q)
-                ensure_active_pool()  # pull a new unseen into the active set
-    
+                ensure_active_pool()
+
             st.session_state.questions_answered += 1
             save_progress()
-    
+
             st.success("✅ Correct!")
-            time.sleep(0.7)
-    
+            time.sleep(0.6)
+
             st.session_state.awaiting_continue = False
             st.session_state.current_question_idx = None
             finish_or_continue_session()
             return
         else:
-            # ❌ incorrect – shorten interval, keep in current rotation, reset streak
             q["interval"] = BASE_INTERVAL_MIN
             q["streak"] = 0
             st.session_state.last_was_correct = False
             st.session_state.last_feedback = f"❌ Wrong! The correct answer was {correct_letter}. {correct_text}"
-    
+
             q["next_time"] = (datetime.now() + timedelta(minutes=q["interval"])).isoformat()
-            # ensure it remains in 'active'; if it was deferred and you get it wrong, pull it back in
             if q.get("status") == "deferred":
                 q["status"] = "active"
-    
+
             st.session_state.questions_answered += 1
             save_progress()
-    
+
             st.session_state.awaiting_continue = True
             st.rerun()
 
 
+def finish_or_continue_session():
+    n = st.session_state.num_questions
+    if st.session_state.questions_answered >= n:
+        st.session_state.screen = "summary"
+    else:
+        st.session_state.current_question_idx = None
+    st.rerun()
+
+
 # ---------- Screens ----------
 def start_screen():
-    # Cute header (start screen only)
     st.markdown(
         "<div style='text-align:center; font-size:2.2rem; line-height:1.2'>"
         "🐝 <b>QuizzyBee</b> 🌸"
@@ -589,14 +743,13 @@ def start_screen():
         unsafe_allow_html=True
     )
 
-    # Load profiles & datasets
+    # Profiles & datasets
     st.session_state.profiles = load_profiles()
     st.session_state.available_sets = list_question_sets(".")
     if not st.session_state.available_sets:
-        st.error("No CSV question sets found in this repository. Add a CSV with headers like: question, optionA..D, answer.")
+        st.error("No CSV question sets found. Add a CSV with headers like: question, optionA..D, answer (+ chapter/section columns).")
         return
 
-    # Default dataset selection
     if not st.session_state.selected_csv or st.session_state.selected_csv not in st.session_state.available_sets:
         st.session_state.selected_csv = st.session_state.available_sets[0]
 
@@ -636,33 +789,99 @@ def start_screen():
         key="selected_csv"
     )
 
-    # NEW: Pre-reading selection (persisted)
+    # Load df and detect taxonomy for this CSV to populate pickers
+    try:
+        df = read_df(st.session_state.selected_csv)
+        chapter_col, section_col, chapters_list, sections_by_chapter = detect_taxonomy(df)
+        st.session_state.chapter_col = chapter_col
+        st.session_state.section_col = section_col
+        st.session_state.chapters_list = chapters_list
+        st.session_state.sections_by_chapter = sections_by_chapter
+    except Exception as e:
+        st.warning(f"Couldn't inspect CSV: {e}")
+
+    # --- Targeting: Chapter / Section pickers ---
+    if st.session_state.chapters_list:
+        # choose chapter (or none)
+        chapter_choices = ["— All chapters —"] + st.session_state.chapters_list
+        default_ch_idx = 0
+        if st.session_state.selected_chapter and st.session_state.selected_chapter in st.session_state.chapters_list:
+            default_ch_idx = chapter_choices.index(st.session_state.selected_chapter)
+        st.session_state.selected_chapter = st.selectbox(
+            "Target a Chapter (optional)",
+            options=chapter_choices,
+            index=default_ch_idx,
+        )
+        if st.session_state.selected_chapter == "— All chapters —":
+            st.session_state.selected_chapter = None
+
+        # section depends on chapter
+        if st.session_state.selected_chapter:
+            sections = st.session_state.sections_by_chapter.get(st.session_state.selected_chapter, [])
+            section_choices = ["— All sections in this chapter —"] + sections if sections else ["— No sections found —"]
+            default_sec_idx = 0
+            if st.session_state.selected_section and sections and st.session_state.selected_section in sections:
+                default_sec_idx = section_choices.index(st.session_state.selected_section)
+            st.session_state.selected_section = st.selectbox(
+                "Target a Section (optional)",
+                options=section_choices,
+                index=min(default_sec_idx, len(section_choices) - 1),
+                help="If you leave this as 'All', you'll see all sections of the selected chapter."
+            )
+            if st.session_state.selected_section and st.session_state.selected_section.startswith("—"):
+                st.session_state.selected_section = None
+        else:
+            # no chapter → let user optionally pick any section (rare; only if df has a section column)
+            if st.session_state.section_col:
+                # derive all sections globally
+                all_secs = []
+                for v in df[st.session_state.section_col].fillna(""):
+                    all_secs.extend(_split_multi(v))
+                all_secs = sorted(sorted(set(all_secs)), key=lambda s: s.lower())
+                sec_choices = ["— Any section —"] + all_secs
+                default_any_sec_idx = 0
+                if st.session_state.selected_section and st.session_state.selected_section in all_secs:
+                    default_any_sec_idx = sec_choices.index(st.session_state.selected_section)
+                st.session_state.selected_section = st.selectbox(
+                    "Target a Section (without picking a chapter)",
+                    options=sec_choices,
+                    index=default_any_sec_idx
+                )
+                if st.session_state.selected_section == "— Any section —":
+                    st.session_state.selected_section = None
+    else:
+        st.info("This CSV doesn't declare chapters/sections. You'll drill the whole set.")
+
+    # Pre-reading preference
     st.session_state.pre_read_mode = st.radio(
         "Before the questions, would you like to read…",
         PRE_READ_MODES,
         index=PRE_READ_MODES.index(st.session_state.pre_read_mode),
         horizontal=True,
-        help="You can choose to read the full section, a short summary, or skip reading."
+        help="Choose screenshots first (if available), or fallback to JSON text."
     )
 
-    # Load/refresh quiz data if selection or profile changed
+    # Build/refresh quiz data with current filters
     ensure_quiz_data_loaded()
 
-    # Info about due items for this set (for this profile if saving)
+    # Info about due items
     currently_due = len(due_indexes()) if st.session_state.quiz_data else 0
+    # show how many questions are in the filtered set
+    total_filtered = len(st.session_state.quiz_data or [])
     st.info(
         f"Profile: **{st.session_state.selected_profile}**  •  "
-        f"Due in this set: **{currently_due}**"
+        f"Filtered set size: **{total_filtered}**  •  "
+        f"Due now: **{currently_due}**"
     )
 
-    # Reset progress (only if saving with a profile) with confirmation
-    if st.session_state.selected_profile != NO_PROFILE_LABEL:
+    # Reset with confirmation (only if saving)
+    if st.session_state.selected_profile != NO_PROFILE_LABEL and total_filtered:
         if not st.session_state.confirm_reset:
             if st.button("Reset progress for this set"):
                 st.session_state.confirm_reset = True
                 st.rerun()
         else:
-            st.warning("Are you sure? This will erase all saved intervals and due times for this profile and set.")
+            st.warning("Are you sure? This will erase saved intervals & due times for this profile and set.")
             c1, c2 = st.columns(2)
             if c1.button("✅ Yes, reset now"):
                 reset_progress_for_current_set()
@@ -682,11 +901,13 @@ def start_screen():
         step=1
     )
 
-    # SAVE defaults so they stick next time
+    # Persist defaults (including last chosen chapter/section)
     save_settings(
         last_profile=st.session_state.selected_profile,
         last_num_questions=st.session_state.num_questions,
         pre_read_mode=st.session_state.pre_read_mode,
+        last_chapter=st.session_state.selected_chapter,
+        last_section=st.session_state.selected_section,
     )
 
     if st.button("Start Session ▶", type="primary"):
@@ -698,29 +919,62 @@ def start_screen():
         st.session_state.last_was_correct = None
         st.session_state.last_feedback = ""
 
-        # NEW: If reading is requested and available, go to reading screen; else quiz
+        # Prefer screenshot reading for selected chapter/section
+        st.session_state.screenshot_map = find_section_images(st.session_state.selected_chapter,
+                                                              st.session_state.selected_section)
+
+        # also prepare JSON reading fallback (old behavior)
         payload, support, stem = load_reading_payload(st.session_state.selected_csv)
         st.session_state.reading_payload = payload
         st.session_state.reading_stem = stem
-        want_reading = (st.session_state.pre_read_mode != PRE_READ_NONE)
 
-        if want_reading and payload and (support == "both" or (support == "summary_only" and st.session_state.pre_read_mode == PRE_READ_SUMMARY)):
-            st.session_state.screen = "reading"
-        else:
-            st.session_state.screen = "quiz"
-            
-        # NEW: make sure we have an active pool before we start
+        want_reading = (st.session_state.pre_read_mode != PRE_READ_NONE)
+        have_shots = bool(st.session_state.screenshot_map)
+
+        # route to reading if user wants it and we have screenshots OR valid JSON fallback
+        go_reading = False
+        if want_reading and have_shots:
+            go_reading = True
+        elif want_reading and payload and (support == "both" or (support == "summary_only" and st.session_state.pre_read_mode == PRE_READ_SUMMARY)):
+            go_reading = True
+
+        st.session_state.screen = "reading" if go_reading else "quiz"
+
         ensure_quiz_data_loaded()
         ensure_active_pool()
-
         st.rerun()
 
+
 def reading_screen():
-    """NEW: Show reading or summary, then proceed to quiz."""
+    """Show screenshots for selected (chapter[/section]) OR fallback to JSON reading."""
+    # 1) Prefer screenshots
+    shots = st.session_state.get("screenshot_map") or {}
+    if shots:
+        # Title
+        title_parts = []
+        if st.session_state.selected_chapter:
+            title_parts.append(st.session_state.selected_chapter)
+        if st.session_state.selected_section:
+            title_parts.append(st.session_state.selected_section)
+        st.header(" • ".join(title_parts) if title_parts else "Reading")
+
+        # Render sections with images
+        for sec_title, img_paths in shots.items():
+            st.subheader(sec_title)
+            for p in img_paths:
+                st.image(p, use_column_width=True)
+            st.markdown("---")
+
+        if st.button("Start Quiz ▶", type="primary"):
+            st.session_state.screen = "quiz"
+            st.rerun()
+        return
+
+    # 2) Fallback to JSON reading payload (old flow)
     payload = st.session_state.reading_payload
     stem = st.session_state.reading_stem or "Reading"
     if not payload:
-        st.info("No reading material found for this chapter. Starting the quiz.")
+        st.info("No screenshots or reading material found. Starting the quiz.")
         st.session_state.screen = "quiz"
         st.rerun()
         return
@@ -729,7 +983,6 @@ def reading_screen():
 
     mode = st.session_state.pre_read_mode
     if mode == PRE_READ_FULL and payload.get("reading"):
-        # Full reading
         est = payload.get("estimated_read_time_sec", 60)
         st.caption(f"Estimated read time ~ {max(1, int(est/60))} min")
         st.write(payload["reading"])
@@ -738,7 +991,6 @@ def reading_screen():
                 for b in payload["summary_bullets"]:
                     st.markdown(f"- {b}")
     elif mode == PRE_READ_SUMMARY and payload.get("summary_bullets"):
-        # Summary only
         st.subheader("Summary")
         for b in payload["summary_bullets"]:
             st.markdown(f"- {b}")
@@ -755,30 +1007,33 @@ def reading_screen():
         st.session_state.screen = "quiz"
         st.rerun()
 
+
 def quiz_screen():
     ensure_quiz_data_loaded()
     if not st.session_state.quiz_data:
-        st.error("No questions loaded for this set.")
+        st.error("No questions loaded for this selection. Try choosing a different chapter/section or CSV.")
         if st.button("Back to start"):
             st.session_state.screen = "start"
             st.rerun()
         return
 
-    # Progress header
     n = st.session_state.num_questions
     answered = st.session_state.questions_answered
     st.progress(answered / n if n else 0.0)
+    # Show current target
+    tgt = []
+    if st.session_state.selected_chapter:
+        tgt.append(st.session_state.selected_chapter)
+    if st.session_state.selected_section:
+        tgt.append(st.session_state.selected_section)
+    target_str = " • ".join(tgt) if tgt else "All"
     st.caption(
         f"Question {min(answered + 1, n)} of {n}  •  "
+        f"Target: {target_str}  •  "
         f"Profile: {st.session_state.selected_profile}"
     )
 
-    # Keep the same question until Continue after Submit
     if st.session_state.current_question_idx is None:
-        # OLD:
-        # idx = pick_next_question_idx()
-        
-        # NEW:
         idx = pick_next_question_idx_rotation()
         if idx is None:
             st.success("🎉 All due questions are up to date right now.")
@@ -796,9 +1051,8 @@ def quiz_screen():
     idx = st.session_state.current_question_idx
     st.subheader(st.session_state.quiz_data[idx]["question"])
     show_question(idx)
-    
-    # allow returning to start during quiz
-    st.markdown("---")    
+
+    st.markdown("---")
     if st.button("🏠 Return to Start", type="secondary"):
         st.session_state.screen = "start"
         st.session_state.current_question_idx = None
@@ -821,9 +1075,17 @@ def summary_screen():
         st.write("No questions were due this time. Nice and caught up!")
 
     due_count = len(due_indexes())
+    tgt = []
+    if st.session_state.selected_chapter:
+        tgt.append(st.session_state.selected_chapter)
+    if st.session_state.selected_section:
+        tgt.append(st.session_state.selected_section)
+    target_str = " • ".join(tgt) if tgt else "All"
+
     st.caption(
-        f"Currently due for review: **{due_count}** question(s).  •  "
-        f"Profile: {st.session_state.selected_profile}"
+        f"Target: **{target_str}**  •  "
+        f"Currently due for review: **{due_count}**  •  "
+        f"Profile: **{st.session_state.selected_profile}**"
     )
 
     if st.button("Return to Start", type="primary"):
@@ -834,15 +1096,15 @@ def summary_screen():
         st.session_state.last_feedback = ""
         st.rerun()
 
+
 # ---------- Router ----------
 screen = st.session_state.screen
 if screen == "start":
     start_screen()
-elif screen == "reading":  # NEW
+elif screen == "reading":
     reading_screen()
 elif screen == "quiz":
     quiz_screen()
 else:
     summary_screen()
-
 
