@@ -827,7 +827,8 @@ def start_screen():
 
     # Load df and detect taxonomy for this CSV to populate pickers
     try:
-        df = read_df(st.session_state.selected_csv)
+        p = Path(st.session_state.selected_csv)
+        df = read_df(str(p), p.stat().st_mtime)
         chapter_col, section_col, chapters_list, sections_by_chapter = detect_taxonomy(df)
         st.session_state.chapter_col = chapter_col
         st.session_state.section_col = section_col
