@@ -115,6 +115,13 @@ def natural_key(text):
     """
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(text))]
 
+def _gather_images(dirpath: Path) -> list[str]:
+    imgs = []
+    for ext in ("*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp"):
+        imgs.extend(sorted(glob.glob(str(dirpath / ext))))
+    return imgs
+
+
 # ---------- Profiles store ----------
 def load_profiles() -> list[str]:
     try:
@@ -644,53 +651,70 @@ def due_indexes():
 # ---------- Screenshots (reading) ----------
 def find_section_images(chapter: Optional[str], section: Optional[str]) -> dict:
     """
-    Returns a mapping {section_title: [image_paths]}.
-    If only chapter is selected: gather all section folders under that chapter.
-    If chapter+section: just that one.
+    Returns a mapping:
+      {
+        "__CHAPTER_TOP__": [image_paths],   # images directly in chapter folder (only when whole chapter selected)
+        "__SUMMARY__": [image_paths],       # images in chapter/summary/ (used when Summary-only chosen)
+        "<section title>": [image_paths],   # images from each section folder
+      }
     """
     result: dict[str, list[str]] = {}
     root = Path(SECTIONS_IMG_ROOT)
 
     if not chapter and not section:
-        return result  # no target
-
-    if chapter and section:
-        ch_dir = root / safe_name(chapter)
-        sec_dir = ch_dir / safe_name(section)
-        imgs = []
-        for ext in ("*.png", "*.jpg", "*.jpeg", "*.gif"):
-            imgs.extend(sorted(glob.glob(str(sec_dir / ext))))
-        if imgs:
-            result[section] = imgs
         return result
 
-    # Only chapter chosen → find all section subfolders
+    if chapter and section:
+        # Specific section only
+        ch_dir = root / safe_name(chapter)
+        sec_dir = ch_dir / safe_name(section)
+        imgs = _gather_images(sec_dir)
+        if imgs:
+            result[section] = imgs
+
+        # If user chose "Summary only", also look for chapter/summary/ images
+        if st.session_state.get("pre_read_mode") == PRE_READ_SUMMARY:
+            summary_imgs = _gather_images(ch_dir / "summary")
+            if summary_imgs:
+                result["__SUMMARY__"] = summary_imgs
+        return result
+
+    # Whole chapter selected (no section)
     if chapter:
         ch_dir = root / safe_name(chapter)
         if not ch_dir.exists():
             return result
-        # If we know declared sections, use that order; else list directories
+
+        # 1) Chapter-top images (files directly inside chapter folder)
+        top_imgs = _gather_images(ch_dir)
+        if top_imgs:
+            result["__CHAPTER_TOP__"] = top_imgs
+
+        # 2) If Summary-only requested, collect summary images
+        if st.session_state.get("pre_read_mode") == PRE_READ_SUMMARY:
+            summary_imgs = _gather_images(ch_dir / "summary")
+            if summary_imgs:
+                result["__SUMMARY__"] = summary_imgs
+
+        # 3) Sections (in declared order when available)
         sections_known = st.session_state.sections_by_chapter.get(chapter, [])
         if sections_known:
             sections = sections_known
         else:
-            # derive from folders
+            # derive from subfolders
             sections = []
             for p in ch_dir.glob("*"):
-                if p.is_dir():
+                if p.is_dir() and p.name.lower() != "summary":
                     sections.append(p.name.replace("_", " "))
-            sections = sorted(sections, key=lambda s: s.lower())
+            sections = sorted(sections, key=natural_key)
 
         for sec in sections:
             sec_dir = ch_dir / safe_name(sec)
-            imgs = []
-            for ext in ("*.png", "*.jpg", "*.jpeg", "*.gif"):
-                imgs.extend(sorted(glob.glob(str(sec_dir / ext))))
+            imgs = _gather_images(sec_dir)
             if imgs:
                 result[sec] = imgs
 
     return result
-
 
 # ---------- UI: question rendering ----------
 def show_question(idx):
@@ -998,7 +1022,6 @@ def start_screen():
 
 def reading_screen():
     """Show screenshots for selected (chapter[/section]) OR fallback to JSON reading."""
-    # 1) Prefer screenshots
     shots = st.session_state.get("screenshot_map") or {}
     if shots:
         # Title
@@ -1009,11 +1032,31 @@ def reading_screen():
             title_parts.append(st.session_state.selected_section)
         st.header(" • ".join(title_parts) if title_parts else "Reading")
 
-        # Render sections with images
+        # If Summary-only and we have summary images, show ONLY those
+        if st.session_state.pre_read_mode == PRE_READ_SUMMARY and "__SUMMARY__" in shots:
+            st.subheader("Chapter Summary")
+            for p in shots["__SUMMARY__"]:
+                st.image(p, use_container_width=True)
+            st.markdown("---")
+            if st.button("Start Quiz ▶", type="primary"):
+                st.session_state.screen = "quiz"
+                st.rerun()
+            return
+
+        # Otherwise, if whole chapter selected and chapter-top images exist, show them first
+        if "__CHAPTER_TOP__" in shots:
+            st.subheader("Chapter overview")
+            for p in shots["__CHAPTER_TOP__"]:
+                st.image(p, use_container_width=True)
+            st.markdown("---")
+
+        # Render section images (skip the special keys)
         for sec_title, img_paths in shots.items():
+            if sec_title in {"__CHAPTER_TOP__", "__SUMMARY__"}:
+                continue
             st.subheader(sec_title)
             for p in img_paths:
-                st.image(p, use_column_width=True)
+                st.image(p, use_container_width=True)
             st.markdown("---")
 
         if st.button("Start Quiz ▶", type="primary"):
