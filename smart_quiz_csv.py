@@ -227,15 +227,15 @@ st.caption("Filter by chapter & section • See screenshots • Then drill only 
 
 # ---------- CSV helpers ----------
 def _pick_first_present(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
-    for c in df.columns:
-        normalized = c.strip()
-        if normalized in candidates:
-            return normalized
-    # loose match ignoring case/spaces
-    cols_lower = {c.lower().strip(): c for c in df.columns}
+    """
+    Return the actual column name in df that matches any of the candidates,
+    ignoring case and whitespace.
+    """
+    df_cols_norm = {c.lower().strip(): c for c in df.columns}
     for cand in candidates:
-        if cand.lower() in cols_lower:
-            return cols_lower[cand.lower()]
+        cand_norm = cand.lower().strip()
+        if cand_norm in df_cols_norm:
+            return df_cols_norm[cand_norm]
     return None
 
 
@@ -246,7 +246,8 @@ def _split_multi(value) -> list[str]:
     if not text or text.lower() in {"section not found", "not found", "none"}:
         return []
     parts = re.split(r"[;,]", text)
-    return [p.strip() for p in parts if p.strip() and p.lower() not in {"section not found", "not found"}]
+    # normalize: lowercase and strip extra spaces
+    return [p.strip().lower() for p in parts if p.strip() and p.lower() not in {"section not found", "not found"}]
 
 
 @st.cache_data
@@ -370,11 +371,16 @@ def _col_try(df: pd.DataFrame, *names):
 def _row_matches_filters(row, chapter_col, section_col, sel_chapter, sel_section) -> bool:
     """
     Return True if this row should be included given user's selections.
+    Case-insensitive version.
     Behavior:
       • If chapter/section filters are in use, rows missing either chapter OR section are excluded.
       • If no filters are in use, all rows are included (unless EXCLUDE_UNTAGGED_ALWAYS=True).
     """
-    # Gather tags (as sets) if columns exist
+    # Normalize selected filters to lowercase
+    sel_chapter = sel_chapter.lower().strip() if isinstance(sel_chapter, str) else None
+    sel_section = sel_section.lower().strip() if isinstance(sel_section, str) else None
+
+    # Gather tags (already lowercase from _split_multi)
     chs = set(_split_multi(row.get(chapter_col, ""))) if chapter_col else set()
     secs = set(_split_multi(row.get(section_col, ""))) if section_col else set()
 
@@ -394,20 +400,19 @@ def _row_matches_filters(row, chapter_col, section_col, sel_chapter, sel_section
     if not using_filters:
         return True
 
-    # Only section selected (no chapter): include if section matches anywhere
-    if sel_section and not sel_chapter:
+    # Only section selected (no chapter): include if section matches anywhere (case-insensitive)
+    if sel_section and not sel_chapter and section_col:
         return sel_section in secs
 
     # Chapter selected (with or without section)
-    if sel_chapter:
+    if sel_chapter and chapter_col:
         if sel_chapter not in chs:
             return False
-        if sel_section:
-            return sel_section in secs
+        if sel_section and section_col:
+            return sel_section in secs if secs else False
         return True
 
     return False
-
 
 
 def build_questions_from_df(df: pd.DataFrame,
@@ -866,6 +871,12 @@ def start_screen():
             )
             if st.session_state.selected_section and st.session_state.selected_section.startswith("—"):
                 st.session_state.selected_section = None
+            # 🔽 Normalize picks for case-insensitive matching
+            if st.session_state.selected_chapter:
+                st.session_state.selected_chapter = st.session_state.selected_chapter.strip().lower()
+            if st.session_state.selected_section:
+                st.session_state.selected_section = st.session_state.selected_section.strip().lower()
+
         else:
             # no chapter → let user optionally pick any section (rare; only if df has a section column)
             if st.session_state.section_col:
@@ -885,6 +896,9 @@ def start_screen():
                 )
                 if st.session_state.selected_section == "— Any section —":
                     st.session_state.selected_section = None
+                # 🔽 Normalize pick for case-insensitive matching
+                if st.session_state.selected_section:
+                    st.session_state.selected_section = st.session_state.selected_section.strip().lower()
     else:
         st.info("This CSV doesn't declare chapters/sections. You'll drill the whole set.")
 
