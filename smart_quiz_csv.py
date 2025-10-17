@@ -252,12 +252,15 @@ def _split_multi(value) -> list[str]:
     if not text or text.lower() in {"section not found", "not found", "none"}:
         return []
     parts = re.split(r"[;,]", text)
-    # normalize: lowercase and strip extra spaces
-    return [p.strip().lower() for p in parts if p.strip() and p.lower() not in {"section not found", "not found"}]
+    # IMPORTANT: return original casing for display
+    return [p.strip() for p in parts if p.strip() and p.strip().lower() not in {"section not found", "not found"}]
+
+def _norm(s: str | None) -> str | None:
+    return s.strip().lower() if isinstance(s, str) else None
 
 
 @st.cache_data
-def read_df(csv_file: str) -> pd.DataFrame:
+def read_df(csv_file: str, mtime: float) -> pd.DataFrame:
     return pd.read_csv(csv_file, sep=",", engine="python")
 
 
@@ -375,47 +378,31 @@ def _col_try(df: pd.DataFrame, *names):
 
 
 def _row_matches_filters(row, chapter_col, section_col, sel_chapter, sel_section) -> bool:
-    """
-    Return True if this row should be included given user's selections.
-    Case-insensitive version.
-    Behavior:
-      • If chapter/section filters are in use, rows missing either chapter OR section are excluded.
-      • If no filters are in use, all rows are included (unless EXCLUDE_UNTAGGED_ALWAYS=True).
-    """
-    # Normalize selected filters to lowercase
-    sel_chapter = sel_chapter.lower().strip() if isinstance(sel_chapter, str) else None
-    sel_section = sel_section.lower().strip() if isinstance(sel_section, str) else None
+    sel_chapter_n = _norm(sel_chapter)
+    sel_section_n = _norm(sel_section)
 
-    # Gather tags (already lowercase from _split_multi)
-    chs = set(_split_multi(row.get(chapter_col, ""))) if chapter_col else set()
-    secs = set(_split_multi(row.get(section_col, ""))) if section_col else set()
+    chs = {_norm(x) for x in _split_multi(row.get(chapter_col, ""))} if chapter_col else set()
+    secs = {_norm(x) for x in _split_multi(row.get(section_col, ""))} if section_col else set()
 
-    using_filters = bool(sel_chapter or sel_section)
+    using_filters = bool(sel_chapter_n or sel_section_n)
 
-    # Exclude untagged if filters are in use (so incomplete rows don’t sneak in)
     if using_filters and EXCLUDE_UNTAGGED_WHEN_FILTERING:
         if not chs or not secs:
             return False
-
-    # Optional: exclude untagged globally, even without filters
     if not using_filters and EXCLUDE_UNTAGGED_ALWAYS:
         if not chs or not secs:
             return False
-
-    # No filters at all → include (subject to optional global exclusion above)
     if not using_filters:
         return True
 
-    # Only section selected (no chapter): include if section matches anywhere (case-insensitive)
-    if sel_section and not sel_chapter and section_col:
-        return sel_section in secs
+    if sel_section_n and not sel_chapter_n and section_col:
+        return sel_section_n in secs
 
-    # Chapter selected (with or without section)
-    if sel_chapter and chapter_col:
-        if sel_chapter not in chs:
+    if sel_chapter_n and chapter_col:
+        if sel_chapter_n not in chs:
             return False
-        if sel_section and section_col:
-            return sel_section in secs if secs else False
+        if sel_section_n and section_col:
+            return sel_section_n in secs if secs else False
         return True
 
     return False
@@ -494,7 +481,9 @@ def ensure_quiz_data_loaded():
     )
 
     if dataset_changed and st.session_state.selected_csv:
-        df = read_df(st.session_state.selected_csv)
+        p = Path(st.session_state.selected_csv)
+        df = read_df(str(p), p.stat().st_mtime)
+
 
         # detect chapter/section columns and taxonomy
         chapter_col, section_col, chapters_list, sections_by_chapter = detect_taxonomy(df)
