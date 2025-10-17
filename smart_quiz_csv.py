@@ -42,8 +42,16 @@ REQUIRED_HEADERS = {
 }
 
 # Candidates for chapter/section columns in your CSV
-CHAPTER_COL_CANDIDATES = ["chapter", "chapters", "Chapter", "wiki_chapter", "chapter_title"]
-SECTION_COL_CANDIDATES = ["section", "sections", "subchapter", "subchapters", "subsection", "subsections", "wiki_section"]
+CHAPTER_COL_CANDIDATES = [
+    "chapter", "chapters", "Chapter", "wiki_chapter",
+    "chapter_title", "chapter_wiki", "chapter_questions"
+]
+
+SECTION_COL_CANDIDATES = [
+    "section", "sections", "subchapter", "subchapters",
+    "subsection", "subsections", "wiki_section",
+    "section_wiki", "section_questions"
+]
 
 PROFILES_FILE = "quiz_profiles.json"
 SETTINGS_FILE = "quiz_settings.json"
