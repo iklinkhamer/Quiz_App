@@ -44,13 +44,13 @@ REQUIRED_HEADERS = {
 # Candidates for chapter/section columns in your CSV
 CHAPTER_COL_CANDIDATES = [
     "chapter", "chapters", "Chapter", "wiki_chapter",
-    "chapter_title", "chapter_wiki", "chapter_questions"
+    "chapter_title", "chapter_wiki"
 ]
 
 SECTION_COL_CANDIDATES = [
     "section", "sections", "subchapter", "subchapters",
     "subsection", "subsections", "wiki_section",
-    "section_wiki", "section_questions"
+    "section_wiki"
 ]
 
 PROFILES_FILE = "quiz_profiles.json"
@@ -242,10 +242,11 @@ def _pick_first_present(df: pd.DataFrame, candidates: list[str]) -> Optional[str
 def _split_multi(value) -> list[str]:
     if pd.isna(value):
         return []
-    text = str(value)
-    # split by comma or semicolon
+    text = str(value).strip()
+    if not text or text.lower() in {"section not found", "not found", "none"}:
+        return []
     parts = re.split(r"[;,]", text)
-    return [p.strip() for p in parts if p.strip()]
+    return [p.strip() for p in parts if p.strip() and p.lower() not in {"section not found", "not found"}]
 
 
 @st.cache_data
