@@ -844,7 +844,9 @@ def start_screen():
     # --- Targeting: Chapter / Section pickers ---
     if st.session_state.chapters_list:
         # choose chapter (or none)
-        chapter_choices = ["— All chapters —"] + st.session_state.chapters_list
+        # Sort chapters alphabetically (case-insensitive) before showing them
+        sorted_chapters = sorted(st.session_state.chapters_list, key=lambda s: s.lower())
+        chapter_choices = ["— All chapters —"] + sorted_chapters
         default_ch_idx = 0
         if st.session_state.selected_chapter and st.session_state.selected_chapter in st.session_state.chapters_list:
             default_ch_idx = chapter_choices.index(st.session_state.selected_chapter)
@@ -858,7 +860,10 @@ def start_screen():
 
         # section depends on chapter
         if st.session_state.selected_chapter:
-            sections = st.session_state.sections_by_chapter.get(st.session_state.selected_chapter, [])
+            sections = sorted(
+                st.session_state.sections_by_chapter.get(st.session_state.selected_chapter, []),
+                key=lambda s: s.lower()
+            )
             section_choices = ["— All sections in this chapter —"] + sections if sections else ["— No sections found —"]
             default_sec_idx = 0
             if st.session_state.selected_section and sections and st.session_state.selected_section in sections:
