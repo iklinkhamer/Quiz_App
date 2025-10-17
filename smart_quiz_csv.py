@@ -108,6 +108,12 @@ def progress_path_for(csv_file: str, profile_name: Optional[str]):
     safe_prof = safe_name(profile_name)
     return f"quiz_progress__{safe_ds}__{safe_prof}.json"
 
+def natural_key(text):
+    """
+    Split text into numeric and non-numeric parts for natural sorting.
+    e.g. "10 The Heart" -> ["", 10, " the heart"]
+    """
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(text))]
 
 # ---------- Profiles store ----------
 def load_profiles() -> list[str]:
@@ -845,7 +851,7 @@ def start_screen():
     if st.session_state.chapters_list:
         # choose chapter (or none)
         # Sort chapters alphabetically (case-insensitive) before showing them
-        sorted_chapters = sorted(st.session_state.chapters_list, key=lambda s: s.lower())
+        sorted_chapters = sorted(st.session_state.chapters_list, key=natural_key)
         chapter_choices = ["— All chapters —"] + sorted_chapters
         default_ch_idx = 0
         if st.session_state.selected_chapter and st.session_state.selected_chapter in st.session_state.chapters_list:
@@ -862,7 +868,7 @@ def start_screen():
         if st.session_state.selected_chapter:
             sections = sorted(
                 st.session_state.sections_by_chapter.get(st.session_state.selected_chapter, []),
-                key=lambda s: s.lower()
+                key=natural_key
             )
             section_choices = ["— All sections in this chapter —"] + sections if sections else ["— No sections found —"]
             default_sec_idx = 0
